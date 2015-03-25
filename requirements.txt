@@ -1,0 +1,2 @@
+wheel==0.23.0
+GraphLab-Create==1.3
