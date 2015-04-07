@@ -28,6 +28,19 @@ def soft_thresholding(data, value, substitute=0):
     return data
 
 
+def create_recommendation_matrix(a_df, b_idx, gb_key, dataset_name):
+    # Create empty sparse matrix
+    c = sp.sparse.dok_matrix((len(a_df), len(b_idx)), dtype=np.float32)
+    # fill each playlist (row) with corresponding songs
+    for i, (_, gb) in itertools.izip(itertools.count(), a_df.iterrows()):
+        for b_id in gb[dataset_name + '_id']:
+            # Get mapping form b_id to index position
+            j = b_idx.get_loc(b_id)
+            c[i, j] = 1.0
+    # Convert to Compressed sparse row for speed
+    return sp.sparse.csr_matrix(c)
+
+
 def init_factor_matrices(nb_row, nb_col, rank):
     a = np.random.random((nb_row, rank))
     b = np.random.random((rank, nb_col))
