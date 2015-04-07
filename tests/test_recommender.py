@@ -10,7 +10,7 @@ Tests for `recog` module.
 
 import unittest
 
-from recog import recog
+from recog import recommender
 
 
 class TestRecog(unittest.TestCase):

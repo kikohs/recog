@@ -99,7 +99,9 @@ docs/_build/
 # PyBuilder
 target/
 
-
-### IPythonNotebook ###
+# IPythonNotebook
 # Temporary data
 .ipynb_checkpoints/
+
+# PyCharm
+.idea/
