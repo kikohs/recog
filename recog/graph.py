@@ -13,23 +13,28 @@ import pandas as pd
 from sklearn import neighbors
 
 
-def create_song_graph(feat, n_neighbors, metadata=None, p=1, directed=False, with_eid=False):
-    """Create song graph from dataframe of feature using k-nearest neighbors.
-    The dataframe should be indexed by node_id. The metadata param is either a dataframe
-    indexed by node_id or a list of tuple (node_id, attr_dict).
-    """
+def create_song_graph(feat, n_neighbors, metadata=None, p=1, directed=False, with_eid=False, relabel_nodes=False):
     g = None
     if directed:
         g = nx.DiGraph()
     else:
         g = nx.Graph()
+    g.name = 'Song graph'
 
     if metadata is not None:
-        if isinstance(metadata, pd.DataFrame):
+        if isinstance(metadata, pd.DataFrame) or isinstance(metadata, pd.Series):
             m = metadata[metadata.index.isin(feat.index)]
+            if relabel_nodes:
+                m = m.reset_index()
             g.add_nodes_from(m.iterrows())
         else:
             g.add_nodes_from(metadata)
+    else:
+        if relabel_nodes:
+            f = pd.DataFrame(index=feat.index).reset_index()
+            g.add_nodes_from(f.iterrows())
+        else:
+            g.add_nodes_from(feat.index.values)
 
     # one more neighbors because we are skipping the self comparison
     near = neighbors.NearestNeighbors(n_neighbors + 1, algorithm='auto', p=p).fit(feat.values)
@@ -37,31 +42,48 @@ def create_song_graph(feat, n_neighbors, metadata=None, p=1, directed=False, wit
     # Mean of the the kth nearest neighbors for each data point
     sigma = np.mean(distances[:, -1])
 
-    # iter through each node to create edges
-    for k, (i, d) in itertools.izip(itertools.count(), itertools.izip(indices, distances)):
-        src = feat.index[k]
-        # skip self edge
-        for j, v in itertools.izip(i[1:], d[1:]):
-            tgt = feat.index[j]
-            data = dict()
-            weight = float(math.exp(-(v / sigma)**2))
-            data['weight'] = weight
-            if with_eid:
+    # normalize distance for edge weights
+    t = distances / sigma
+    distances = np.exp(-(t * t))
+
+    if relabel_nodes:
+        feat = feat.reset_index()
+
+    if with_eid:
+        for i in xrange(indices.shape[0]):
+            src = feat.index[i]
+            for j in xrange(1, indices.shape[1]):
+                tgt = feat.index[indices[i, j]]
+                w = distances[i, j]
+                data = dict()
+                data['weight'] = w
                 if not directed:
                     eid = str(tgt) + '-' + str(src) if src > tgt else str(src) + '-' + str(tgt)
                 else:
                     eid = str(src) + '-' + str(tgt)
                 data['eid'] = eid
-            g.add_edge(src, tgt, data)
+                g.add_edge(src, tgt, data)
+    else:
+        for i in xrange(indices.shape[0]):
+            src = feat.index[i]
+            for j in xrange(1, indices.shape[1]):
+                tgt = feat.index[indices[i, j]]
+                w = distances[i, j]
+                g.add_edge(src, tgt, weight=w)
     return g
 
 
-def create_playlist_graph(mix_df, playlist_df, playlist_id_key, song_id_key, gb_key, gb_key_weight=0.5):
+def create_playlist_graph(mix_df, playlist_df, playlist_id_key, song_id_key,
+                          gb_key, gb_key_weight=0.5, relabel_nodes=False):
     """Each playlist is a node, edges are created using similarity between playlists."""
     g = nx.Graph()
+    g.name = 'Playlist graph'
 
     # Create playlist nodes with all properties
-    g.add_nodes_from(zip(mix_df.index, mix_df.to_dict(orient='records')))
+    if relabel_nodes:
+        idmap = dict(itertools.izip(mix_df.index.values, itertools.count()))
+        mix_df = mix_df.reset_index()
+    g.add_nodes_from(mix_df.iterrows())
 
     for song_id, group in playlist_df.groupby(song_id_key):
         # Get all playlists containing this song
@@ -72,6 +94,8 @@ def create_playlist_graph(mix_df, playlist_df, playlist_id_key, song_id_key, gb_
 
         # Create pairwise combinations to inc edge weights
         for (u, v) in itertools.combinations(p, 2):
+            if relabel_nodes:  # map from song_id to idx
+                u, v = idmap[u], idmap[v]
 
             if not g.has_edge(u, v):
                 g.add_edge(u, v, count=1)

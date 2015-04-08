@@ -57,11 +57,11 @@ def graph_gradient_operator(g, key='weight'):
     return sp.sparse.csr_matrix(k)
 
 
-def update_step(nb_iter, theta_tv, A, B, ka, norm_ka, kb, norm_kb, omega, oc):
-    B, A = update_factor(theta_tv, B, A, kb, norm_kb, omega, oc)
-    A, B = update_factor(theta_tv, A.T, B.T, ka, norm_ka, omega.T, oc.T)
-    A, B = A.T, B.T
-    return A, B
+def update_step(theta_tv, a, b, ka, norm_ka, kb, norm_kb, omega, oc):
+    b, a = update_factor(theta_tv, b, a, kb, norm_kb, omega, oc)
+    a, b = update_factor(theta_tv, a.T, b.T, ka, norm_ka, omega.T, oc.T)
+    a, b = a.T, b.T
+    return a, b
 
 
 def update_factor(theta_tv, X, Y, K, normK, omega, OC):
@@ -96,7 +96,7 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC):
 
         # update P1 (NMF part)
         P1 += sigma1 * Y.dot(Xb)
-        t = (P1 - omega)**2 + 4 * sigma1 * OC
+        t = np.square((P1 - omega)) + 4 * sigma1 * OC
         P1 = 0.5 * (P1 + omega - np.sqrt(t))
 
         # update P2 (TV)
@@ -112,7 +112,7 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC):
         theta1 = 1. / np.sqrt(1 + 2 * gamma1 * tau1)
         tau1 = tau1 * theta1
         sigma1 = sigma1 / theta1
-        theta2 = 1./ np.sqrt(1 + 2 * gamma2 * tau2)
+        theta2 = 1. / np.sqrt(1 + 2 * gamma2 * tau2)
         tau2 = tau2 * theta2
         sigma2 = sigma2 / theta2
 
@@ -126,7 +126,8 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC):
     return X, Y
 
 
-def proximal_training(C, WA, WB, rank, O=None, theta_tv=1e-4*5, nb_iter_max=20, verbose=False):
+def proximal_training(C, WA, WB, rank, O=None, theta_tv=1e-4*5, nb_iter_max=20, stop_criterion=1e-9, verbose=False):
+    start = time.time()
     GA = utils.convert_adjacency_matrix(WA)
     GB = utils.convert_adjacency_matrix(WB)
 
@@ -138,32 +139,51 @@ def proximal_training(C, WA, WB, rank, O=None, theta_tv=1e-4*5, nb_iter_max=20, 
     # For sparse matrix
     _, normKA, _ = sp.sparse.linalg.svds(KA, 1)
     _, normKB, _ = sp.sparse.linalg.svds(KB, 1)
+    normKA = normKA[0]
+    normKB = normKB[0]
 
     if O is None:  # no observation mask
         O = np.ones(C.shape)
-        OC = C
+        OC = C.copy()
     else:
         # Mask over rating matrix, computed once
         OC = O * C
 
-    # TODO better iter
-    nb_iter_max = 20
-    for i in xrange(nb_iter_max):
-        A, B = update_step(i, theta_tv, A, B, KA, normKA, KB, normKB, O, OC)
+    stop = False
+    nb_iter = 0
+    delta = 0
+    while not stop and nb_iter < nb_iter_max:
+        Aold = A
+        A, B = update_step(theta_tv, A, B, KA, normKA, KB, normKB, O, OC)
+        nb_iter += 1
+        delta = np.linalg.norm(A - Aold)
         if verbose:
-            print 'Step:', i, 'err: ', np.linalg.norm(C - A.dot(B))
+            print 'Step:', nb_iter, ', err:', np.linalg.norm(C - A.dot(B))
+            print 'Delta A:', delta
 
-    return A, B
+        if delta <= stop_criterion:
+            stop = True
+
+    if delta <= stop_criterion:
+        print 'Converged in', nb_iter, 'steps,', 'reconstruction error:', np.linalg.norm(C - A.dot(B))
+    else:
+        print 'Max iterations reached, did not converged after', nb_iter, 'steps,', \
+            'reconstruction error:', np.linalg.norm(C - A.dot(B))
+
+    print 'Total elapsed time:', time.time() - start, 'seconds'
+    return np.array(A), np.array(B)
 
 
-def recommend(A, B, keypoints):
-    """Keypoints: list of tuple (movie, rating)"""
-
+def recommend(B, keypoints, idmap=None, threshold=1e-8):
+    """Keypoints: list of tuple (movie, rating) or (song, rating), idmap: if given maps idspace to index in matrix"""
     rank = B.shape[0]
     length = B.shape[1]
 
     mask = np.zeros(length)
-    mask_idx = map(lambda x: x[0], keypoints)
+    if idmap is not None:
+        mask_idx = map(lambda x: idmap[x[0]], keypoints)
+    else:
+        mask_idx = map(lambda x: x[0], keypoints)
     mask[mask_idx] = 1.0
     mask = np.diag(mask)
 
@@ -174,5 +194,8 @@ def recommend(A, B, keypoints):
     q = B.dot(mask).dot(ratings)
 
     # Results
-    x = np.linalg.solve(z, q)
-    return x.T.dot(B)
+    t = np.linalg.solve(z, q)
+    raw = np.array(t.T.dot(B))
+
+    points = raw > threshold
+    return np.where(points)[0], raw
