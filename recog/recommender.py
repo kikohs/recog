@@ -28,9 +28,9 @@ def soft_thresholding(data, value, substitute=0):
     return data
 
 
-def create_recommendation_matrix(a_df, b_idx, gb_key, dataset_name):
+def create_recommendation_matrix(a_df, b_idx, gb_key, dataset_name, normalize=True, stop_criterion=1e-2, max_iter=5):
     # Create empty sparse matrix
-    c = sp.sparse.dok_matrix((len(a_df), len(b_idx)), dtype=np.float32)
+    c = sp.sparse.dok_matrix((len(a_df), len(b_idx)), dtype=np.float64)
     # fill each playlist (row) with corresponding songs
     for i, (_, gb) in itertools.izip(itertools.count(), a_df.iterrows()):
         for b_id in gb[dataset_name + '_id']:
@@ -38,7 +38,10 @@ def create_recommendation_matrix(a_df, b_idx, gb_key, dataset_name):
             j = b_idx.get_loc(b_id)
             c[i, j] = 1.0
     # Convert to Compressed sparse row for speed
-    return sp.sparse.csr_matrix(c)
+    c = sp.sparse.csr_matrix(c)
+    if normalize:
+        c = utils.create_double_stochastic_matrix(c, stop_criterion, max_iter)
+    return c
 
 
 def init_factor_matrices(nb_row, nb_col, rank):
@@ -57,14 +60,15 @@ def graph_gradient_operator(g, key='weight'):
     return sp.sparse.csr_matrix(k)
 
 
-def update_step(theta_tv, a, b, ka, norm_ka, kb, norm_kb, omega, oc):
-    b, a = update_factor(theta_tv, b, a, kb, norm_kb, omega, oc)
-    a, b = update_factor(theta_tv, a.T, b.T, ka, norm_ka, omega.T, oc.T)
+def update_step(theta_tv, a, b, ka, norm_ka, kb, norm_kb, omega, oc, stop_criterion):
+    b, a = update_factor(theta_tv, b, a, kb, norm_kb, omega, oc, stop_criterion)
+    a, b = update_factor(theta_tv, a.T, b.T, ka, norm_ka, omega.T, oc.T, stop_criterion)
     a, b = a.T, b.T
     return a, b
 
 
-def update_factor(theta_tv, X, Y, K, normK, omega, OC):
+def update_factor(theta_tv, X, Y, K, normK, omega, OC,
+                  stop_criterion, min_iter=20, nb_iter_max=400):
     # L2-norm of columns
     X = (X.T / np.linalg.norm(X, axis=1)).T
     Y = Y / np.linalg.norm(Y, axis=0)
@@ -90,10 +94,9 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC):
     sigma2 = 1.0 / normK
     tau2 = 1.0 / normK
 
-    # TODO: create better loop
-    inner_loop = 1000
-    for j in xrange(inner_loop):
-
+    stop = False
+    nb_iter = 0
+    while not stop and nb_iter < nb_iter_max:
         # update P1 (NMF part)
         P1 += sigma1 * Y.dot(Xb)
         t = np.square((P1 - omega)) + 4 * sigma1 * OC
@@ -105,6 +108,7 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC):
 
         # new primal variable
         X = X - tau1 * (Y.T.dot(P1)) - tau2 * (K.T.dot(P2)).T
+
         # set negative values to 0 (element wise)
         X = np.maximum(X, 0)
 
@@ -120,13 +124,19 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC):
         t = X - Xold
         Xb = X + 0.5 * theta1 * t + 0.5 * theta2 * t
 
+        delta = np.linalg.norm(t)
+        if delta <= stop_criterion and nb_iter > min_iter:
+            stop = True
+
         # update Xold
         Xold = X
+        nb_iter += 1
 
     return X, Y
 
 
-def proximal_training(C, WA, WB, rank, O=None, theta_tv=1e-4*5, nb_iter_max=20, stop_criterion=1e-9, verbose=False):
+def proximal_training(C, WA, WB, rank, O=None, theta_tv=1e-4*5, nb_iter_max=20, stop_criterion=1e-2,
+                      stop_criterion_inner=5e-4, verbose=False):
     start = time.time()
     GA = utils.convert_adjacency_matrix(WA)
     GB = utils.convert_adjacency_matrix(WB)
@@ -154,7 +164,7 @@ def proximal_training(C, WA, WB, rank, O=None, theta_tv=1e-4*5, nb_iter_max=20, 
     delta = 0
     while not stop and nb_iter < nb_iter_max:
         Aold = A
-        A, B = update_step(theta_tv, A, B, KA, normKA, KB, normKB, O, OC)
+        A, B = update_step(theta_tv, A, B, KA, normKA, KB, normKB, O, OC, stop_criterion_inner)
         nb_iter += 1
         delta = np.linalg.norm(A - Aold)
         if verbose:
@@ -174,7 +184,7 @@ def proximal_training(C, WA, WB, rank, O=None, theta_tv=1e-4*5, nb_iter_max=20, 
     return np.array(A), np.array(B)
 
 
-def recommend(B, keypoints, idmap=None, threshold=1e-8):
+def recommend(B, keypoints, k, idmap=None, threshold=1e-2):
     """Keypoints: list of tuple (movie, rating) or (song, rating), idmap: if given maps idspace to index in matrix"""
     rank = B.shape[0]
     length = B.shape[1]
@@ -197,5 +207,15 @@ def recommend(B, keypoints, idmap=None, threshold=1e-8):
     t = np.linalg.solve(z, q)
     raw = np.array(t.T.dot(B))
 
-    points = raw > threshold
-    return np.where(points)[0], raw
+    # Filter numeric errors
+    mask = raw > threshold
+    points = raw[mask]
+    # Get valid subset of songs
+    position = np.arange(len(mask))[mask]
+    # Get unsorted subset index of k highest values
+    ind = np.argpartition(points, -k)[-k:]
+    # Get sorted subset index of highest values
+    ind = ind[np.argsort(points[ind])]
+    # map subset index to global position of k elements of highest value
+    elems = position[ind]
+    return elems, raw
