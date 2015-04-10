@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import scipy.io
 import scipy.sparse
 import itertools
+import math
 
 # project imports
 import utils
@@ -60,15 +61,15 @@ def graph_gradient_operator(g, key='weight'):
     return sp.sparse.csr_matrix(k)
 
 
-def update_step(theta_tv, a, b, ka, norm_ka, kb, norm_kb, omega, oc, stop_criterion):
-    b, a = update_factor(theta_tv, b, a, kb, norm_kb, omega, oc, stop_criterion)
-    a, b = update_factor(theta_tv, a.T, b.T, ka, norm_ka, omega.T, oc.T, stop_criterion)
+def update_step(theta_tv_a, theta_tv_b, a, b, ka, norm_ka, kb, norm_kb, omega, oc, stop_criterion, min_iter):
+    b, a = update_factor(theta_tv_b, b, a, kb, norm_kb, omega, oc, stop_criterion, min_iter)
+    a, b = update_factor(theta_tv_a, a.T, b.T, ka, norm_ka, omega.T, oc.T, stop_criterion, min_iter)
     a, b = a.T, b.T
     return a, b
 
 
 def update_factor(theta_tv, X, Y, K, normK, omega, OC,
-                  stop_criterion, min_iter=20, nb_iter_max=400):
+                  stop_criterion, min_iter=70, nb_iter_max=400):
     # L2-norm of columns
     X = (X.T / np.linalg.norm(X, axis=1)).T
     Y = Y / np.linalg.norm(Y, axis=0)
@@ -88,7 +89,7 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
     gamma1 = 1e-1
     gamma2 = 1e-1
 
-    # init timestamps
+    # init time-steps
     sigma1 = 1.0 / normY
     tau1 = 1.0 / normY
     sigma2 = 1.0 / normK
@@ -125,6 +126,10 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
         Xb = X + 0.5 * theta1 * t + 0.5 * theta2 * t
 
         delta = np.linalg.norm(t)
+        if math.isnan(delta) or delta <= 1e-9:
+            # No enough iterations
+            delta = 1
+
         if delta <= stop_criterion and nb_iter > min_iter:
             stop = True
 
@@ -135,8 +140,10 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
     return X, Y
 
 
-def proximal_training(C, WA, WB, rank, O=None, theta_tv=1e-4*5, nb_iter_max=20, stop_criterion=1e-2,
-                      stop_criterion_inner=5e-4, verbose=False):
+def proximal_training(C, WA, WB, rank, O=None, theta_tv_a=1e-4*5,
+                      theta_tv_b=1e-4*5,
+                      nb_iter_max=20, min_iter=30, stop_criterion=1e-2,
+                      stop_criterion_inner=5e-4, min_iter_inner=70, verbose=False):
     start = time.time()
     GA = utils.convert_adjacency_matrix(WA)
     GB = utils.convert_adjacency_matrix(WB)
@@ -162,23 +169,32 @@ def proximal_training(C, WA, WB, rank, O=None, theta_tv=1e-4*5, nb_iter_max=20, 
     stop = False
     nb_iter = 0
     delta = 0
+    error = False
     while not stop and nb_iter < nb_iter_max:
         Aold = A
-        A, B = update_step(theta_tv, A, B, KA, normKA, KB, normKB, O, OC, stop_criterion_inner)
+        A, B = update_step(theta_tv_a, theta_tv_b, A, B, KA, normKA, KB, normKB, O, OC, stop_criterion_inner, min_iter_inner)
         nb_iter += 1
         delta = np.linalg.norm(A - Aold)
+
+        if math.isnan(delta):
+            stop = True
+            error = True
+
         if verbose:
             print 'Step:', nb_iter, ', err:', np.linalg.norm(C - A.dot(B))
             print 'Delta A:', delta
 
-        if delta <= stop_criterion:
+        if delta <= stop_criterion and nb_iter > min_iter:
             stop = True
 
-    if delta <= stop_criterion:
-        print 'Converged in', nb_iter, 'steps,', 'reconstruction error:', np.linalg.norm(C - A.dot(B))
+    if not error:
+        if delta <= stop_criterion:
+            print 'Converged in', nb_iter, 'steps,', 'reconstruction error:', np.linalg.norm(C - A.dot(B))
+        else:
+            print 'Max iterations reached, did not converged after', nb_iter, 'steps,', \
+                'reconstruction error:', np.linalg.norm(C - A.dot(B))
     else:
-        print 'Max iterations reached, did not converged after', nb_iter, 'steps,', \
-            'reconstruction error:', np.linalg.norm(C - A.dot(B))
+        print 'Error: try to increase min_iter_inner, the number of iteration for the inner loop'
 
     print 'Total elapsed time:', time.time() - start, 'seconds'
     return np.array(A), np.array(B)
