@@ -24,6 +24,7 @@ def create_double_stochastic_matrix(a, stop_criterion=1e-6, nb_iter_max=5):
     c = sp.sparse.csr_matrix(a, copy=True)
     stop = False
     nb_iter = 0
+
     while not stop and nb_iter < nb_iter_max:
         old_c = c
         c = normalize(c, norm='l1', axis=0)

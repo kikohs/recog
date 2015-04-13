@@ -15,6 +15,7 @@ import scipy.sparse
 import itertools
 import math
 
+from sklearn.preprocessing import normalize
 # project imports
 import utils
 
@@ -29,7 +30,7 @@ def soft_thresholding(data, value, substitute=0):
     return data
 
 
-def create_recommendation_matrix(a_df, b_idx, gb_key, dataset_name, normalize=True, stop_criterion=1e-2, max_iter=5):
+def create_recommendation_matrix(a_df, b_idx, gb_key, dataset_name, normalize=True, stop_criterion=1e-2, max_iter=1):
     # Create empty sparse matrix
     c = sp.sparse.dok_matrix((len(a_df), len(b_idx)), dtype=np.float64)
     # fill each playlist (row) with corresponding songs
@@ -48,8 +49,9 @@ def create_recommendation_matrix(a_df, b_idx, gb_key, dataset_name, normalize=Tr
 def init_factor_matrices(nb_row, nb_col, rank):
     a = np.random.random((nb_row, rank))
     b = np.random.random((rank, nb_col))
-    a /= np.linalg.norm(a, axis=0)
-    b = (b.T / np.linalg.norm(b, axis=1)).T
+
+    a = normalize(a, norm='l1', axis=0)
+    b = normalize(b, norm='l1', axis=1)
     return a, b
 
 
@@ -71,8 +73,8 @@ def update_step(theta_tv_a, theta_tv_b, a, b, ka, norm_ka, kb, norm_kb, omega, o
 def update_factor(theta_tv, X, Y, K, normK, omega, OC,
                   stop_criterion, min_iter=70, nb_iter_max=400):
     # L2-norm of columns
-    X = (X.T / np.linalg.norm(X, axis=1)).T
-    Y = Y / np.linalg.norm(Y, axis=0)
+    # X = (X.T / np.linalg.norm(X, axis=1)).T
+    # Y = Y / np.linalg.norm(Y, axis=0)
 
     # Primal variable
     Xb = X
@@ -82,8 +84,11 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
     # Second dual variable
     P2 = K.dot(X.T)
 
-    # 2-norm largest sigular value
+    # 2-norm largest singular value
     normY = np.linalg.norm(Y, 2)
+    # print 'norm Y:', normY
+    # TODO remove
+    normY = 10.0
 
     # Primal-dual parameters
     gamma1 = 1e-1
@@ -142,7 +147,7 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
 
 def proximal_training(C, WA, WB, rank, O=None, theta_tv_a=1e-4*5,
                       theta_tv_b=1e-4*5,
-                      nb_iter_max=20, min_iter=30, stop_criterion=1e-2,
+                      nb_iter_max=30, nb_min_iter=10, stop_criterion=1e-2,
                       stop_criterion_inner=5e-4, min_iter_inner=70, verbose=False):
     start = time.time()
     GA = utils.convert_adjacency_matrix(WA)
@@ -171,20 +176,26 @@ def proximal_training(C, WA, WB, rank, O=None, theta_tv_a=1e-4*5,
     delta = 0
     error = False
     while not stop and nb_iter < nb_iter_max:
-        Aold = A
-        A, B = update_step(theta_tv_a, theta_tv_b, A, B, KA, normKA, KB, normKB, O, OC, stop_criterion_inner, min_iter_inner)
+        old_A = A
+        old_B = B
+        A, B = update_step(theta_tv_a, theta_tv_b, A, B, KA, normKA, KB, normKB, O, OC,
+                           stop_criterion_inner, min_iter_inner)
         nb_iter += 1
-        delta = np.linalg.norm(A - Aold)
+
+        deltaA = np.linalg.norm(A - old_A) / np.linalg.norm(A)
+        deltaB = np.linalg.norm(B - old_B) / np.linalg.norm(B)
 
         if math.isnan(delta):
             stop = True
             error = True
 
         if verbose:
-            print 'Step:', nb_iter, ', err:', np.linalg.norm(C - A.dot(B))
-            print 'Delta A:', delta
+            print 'Step:', nb_iter, 'err:', np.linalg.norm(C - A.dot(B))
+            print 'Delta A:', deltaA
+            print 'Delta B:', deltaB
+            print
 
-        if delta <= stop_criterion and nb_iter > min_iter:
+        if deltaB <= stop_criterion and nb_iter > nb_min_iter:
             stop = True
 
     if not error:
@@ -200,7 +211,7 @@ def proximal_training(C, WA, WB, rank, O=None, theta_tv_a=1e-4*5,
     return np.array(A), np.array(B)
 
 
-def recommend(B, keypoints, k, idmap=None, threshold=1e-2):
+def recommend(B, keypoints, k, idmap=None, threshold=1e-3):
     """Keypoints: list of tuple (movie, rating) or (song, rating), idmap: if given maps idspace to index in matrix"""
     rank = B.shape[0]
     length = B.shape[1]
