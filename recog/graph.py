@@ -10,7 +10,12 @@ import itertools
 import networkx as nx
 import numpy as np
 import pandas as pd
+from collections import defaultdict
+
 from sklearn import neighbors
+from scipy import stats
+
+import ncut
 
 
 def create_song_graph(feat, n_neighbors, metadata=None, p=1, directed=False, with_eid=False, relabel_nodes=False):
@@ -74,7 +79,7 @@ def create_song_graph(feat, n_neighbors, metadata=None, p=1, directed=False, wit
 
 
 def create_playlist_graph(mix_df, playlist_df, playlist_id_key, song_id_key,
-                          gb_key, gb_key_weight=0.5, relabel_nodes=False):
+                          gb_key, gb_key_weight=0.3, relabel_nodes=False):
     """Each playlist is a node, edges are created using similarity between playlists."""
     g = nx.Graph()
     g.name = 'Playlist graph'
@@ -128,4 +133,89 @@ def create_playlist_graph(mix_df, playlist_df, playlist_id_key, song_id_key,
 
         g[u][v]['weight'] = weight
 
+    return g
+
+
+def pairwise(iterable):
+    """s -> (s0,s1), (s1,s2), (s2, s3), ..."""
+    a, b = itertools.tee(iterable)
+    next(b, None)
+    return itertools.izip(a, b)
+
+
+def groupby_value(d):
+    v = defaultdict(list)
+    for key, value in sorted(d.iteritems()):
+        v[value].append(key)
+
+    return v
+
+
+def _do_ncut(a, nb_classes):
+    assert(nb_classes >= 2)
+    # Apply ncut
+    eigen_val, eigen_vec = ncut.ncut(a, nb_classes)
+    # Coordinates for each point are the 2 first components of the eigenvectors
+    x = np.array(eigen_vec[:, 0])
+    y = np.array(eigen_vec[:, 1])
+    # Create position
+    pos = map(lambda x, y: (float(x), float(y)), x, y)
+
+    # discretize to obtain cluster id
+    eigenvec_discrete = ncut.discretisation(eigen_vec)
+    res = eigenvec_discrete.dot(np.arange(1, nb_classes + 1))
+    f = lambda x: x -1  # remap classes between 0 and 3
+    clusters = f(res)
+
+    return clusters, pos
+
+
+def apply_ncut(g, nb_classes):
+    a = np.array(nx.to_numpy_matrix(g))
+    clusters, pos = _do_ncut(a, nb_classes)
+    for i, (n, d) in enumerate(g.nodes_iter(data=True)):
+        d['ncut_id'] = int(clusters[i])
+        d['x'] = float(pos[i][0])
+        d['y'] = float(pos[i][1])
+        d['pos'] = pos[i]
+
+
+def n_cut_purity(g, key='genre'):
+    id2cluster = nx.get_node_attributes(g, 'ncut_id')
+    id2genre = nx.get_node_attributes(g, key)
+    cluster2id = groupby_value(id2cluster)
+
+    cluster2genre = defaultdict(list)
+    for k, v in cluster2id.iteritems(): # for each cluster
+        for i in v: # for each id in cluster
+            cluster2genre[k].append(id2genre[i])
+
+    # Count number of rightly classified points
+    good = 0
+    clusterid2genre = dict()
+    for k, v in cluster2genre.iteritems():
+        val, count = stats.mode(np.array(v, dtype='object'))
+        good += int(count[0])
+        clusterid2genre[k] = val[0]
+
+    return float(good) / g.number_of_nodes()
+
+
+def build_rating_graph(library, playlists, song_id_key, directed=False):
+    g = nx.Graph()
+    if directed:
+        g = nx.DiGraph()
+    g.add_nodes_from(library)
+    for pid, row in playlists.iterrows():
+        for (u, v) in pairwise(row[song_id_key]):
+            if not g.has_edge(u, v):
+                eid = None
+                if not directed:
+                    eid = str(v) + '-' + str(u) if u > v else str(u) + '-' + str(v)
+                else:
+                    eid = str(u) + '-' + str(v)
+                g.add_edge(u, v, rating=1, pid=[pid], eid=eid, weight=1)
+            else:
+                g[u][v]['rating'] += 1
+                g[u][v]['pid'].append(pid)
     return g

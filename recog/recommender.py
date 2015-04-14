@@ -86,7 +86,7 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
 
     # 2-norm largest singular value
     normY = np.linalg.norm(Y, 2)
-    # print 'norm Y:', normY
+    print 'norm Y:', normY
     # TODO remove
     normY = 10.0
 
@@ -119,12 +119,14 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
         X = np.maximum(X, 0)
 
         # Acceleration, update time-steps
-        theta1 = 1. / np.sqrt(1 + 2 * gamma1 * tau1)
-        tau1 = tau1 * theta1
-        sigma1 = sigma1 / theta1
-        theta2 = 1. / np.sqrt(1 + 2 * gamma2 * tau2)
-        tau2 = tau2 * theta2
-        sigma2 = sigma2 / theta2
+        # theta1 = 1. / np.sqrt(1 + 2 * gamma1 * tau1)
+        # tau1 = tau1 * theta1
+        # sigma1 = sigma1 / theta1
+        # theta2 = 1. / np.sqrt(1 + 2 * gamma2 * tau2)
+        # tau2 = tau2 * theta2
+        # sigma2 = sigma2 / theta2
+        theta1 = 1.0
+        theta2 = 1.0
 
         # update primal variable for acceleration
         t = X - Xold
