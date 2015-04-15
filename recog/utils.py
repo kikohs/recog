@@ -20,15 +20,15 @@ def convert_adjacency_matrix(W):
     return G
 
 
-def create_double_stochastic_matrix(a, stop_criterion=1e-6, nb_iter_max=5):
+def create_double_stochastic_matrix(a, stop_criterion=1e-6, nb_iter_max=1, norm='l2'):
     c = sp.sparse.csr_matrix(a, copy=True)
     stop = False
     nb_iter = 0
 
     while not stop and nb_iter < nb_iter_max:
         old_c = c
-        c = normalize(c, norm='l1', axis=0)
-        c = normalize(c, norm='l1', axis=1)
+        c = normalize(c, norm=norm, axis=0)
+        c = normalize(c, norm=norm, axis=1)
         # frobenius norm of difference, sparse matrix
         t = c.data - old_c.data
         delta = np.sqrt(np.sum(t * t))

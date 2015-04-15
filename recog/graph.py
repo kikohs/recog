@@ -6,6 +6,9 @@ import os
 import sys
 import math
 import itertools
+import time
+import operator
+import random
 
 import networkx as nx
 import numpy as np
@@ -18,7 +21,7 @@ from scipy import stats
 import ncut
 
 
-def create_song_graph(feat, n_neighbors, metadata=None, p=1, directed=False, with_eid=False, relabel_nodes=False):
+def create_song_graph_impl(feat, n_neighbors, metadata=None, p=1, directed=False, with_eid=False, relabel_nodes=False):
     g = None
     if directed:
         g = nx.DiGraph()
@@ -78,8 +81,20 @@ def create_song_graph(feat, n_neighbors, metadata=None, p=1, directed=False, wit
     return g
 
 
-def create_playlist_graph(mix_df, playlist_df, playlist_id_key, song_id_key,
-                          gb_key, gb_key_weight=0.3, relabel_nodes=False):
+def create_song_graph(feat_df, song_df, nb_neighbors=10, metadata=['artist_name', 'title', 'genre', 'genre_topic'],
+                      ncut_key='genre_topic'):
+    """Create song graph and label the nodes according to their N-cut cluster id"""
+    start = time.time()
+    g = create_song_graph_impl(feat_df, nb_neighbors, song_df[metadata], relabel_nodes=True)
+    nb_cuts = len(np.unique(song_df[ncut_key]))
+    print 'Ncuts clusters:', nb_cuts
+    g, song_df = ncut_labeling(g, song_df, nb_cuts, ncut_key)
+    print 'Created in:', time.time() - start, 'seconds \n'
+    return g, song_df
+
+
+def create_playlist_graph_impl(mix_df, playlist_df, playlist_id_key, song_id_key,
+                               p_category_key, p_category_weight, max_category_edges, relabel_nodes=True):
     """Each playlist is a node, edges are created using similarity between playlists."""
     g = nx.Graph()
     g.name = 'Playlist graph'
@@ -108,16 +123,19 @@ def create_playlist_graph(mix_df, playlist_df, playlist_id_key, song_id_key,
                 g[u][v]['count'] += 1
 
     # Create or update edges within the same category
-    for _, group in mix_df.groupby(gb_key):
+    for _, group in mix_df.groupby(p_category_key):
         p = group.index.values
         if len(p) < 2:
             continue
         # index should be unique
-        for (u, v) in itertools.combinations(p, 2):
+        max_pairs = len(p) * (len(p) - 1) / 2
+        chosen_pairs = min(int(max_pairs * max_category_edges), max_pairs)
+        pairs = random.sample(list(itertools.combinations(p, 2)), chosen_pairs)
+        for (u, v) in pairs:
             if not g.has_edge(u, v):
-                g.add_edge(u, v, {gb_key: gb_key_weight})
+                g.add_edge(u, v, {p_category_key: p_category_weight})
             else:  # songs are common between the two playlists
-                g[u][v][gb_key] = gb_key_weight
+                g[u][v][p_category_key] = p_category_weight
 
     # Reweight all edges
     for u, v, d in g.edges_iter(data=True):
@@ -125,15 +143,27 @@ def create_playlist_graph(mix_df, playlist_df, playlist_id_key, song_id_key,
         if 'count' in d:
             cosine_sim = float(g[u][v]['count']) / (np.sqrt(g.node[u]['size']) * np.sqrt(g.node[v]['size']))
             # weight the cosine similarity to keep final weight between 0 and 1
-            factor = 1.0 - gb_key_weight
+            factor = 1.0 - p_category_weight
             weight += factor * cosine_sim
 
-        if gb_key in d:
-            weight += gb_key_weight
+        if p_category_key in d:
+            weight += p_category_weight
 
         g[u][v]['weight'] = weight
 
     return g
+
+
+def create_playlist_graph(mix_df, playlist_df, playlist_id_key, song_id_key, p_category_key,
+                          p_category_weight=0.3, max_category_edges=0.1):
+    start = time.time()
+    g = create_playlist_graph_impl(mix_df, playlist_df, playlist_id_key,
+                                   song_id_key, p_category_key, p_category_weight, max_category_edges, True)
+    nb_cuts = len(np.unique(mix_df[p_category_key]))
+    print 'Ncuts clusters:', nb_cuts
+    g, mix_df = ncut_labeling(g, mix_df, nb_cuts, p_category_key)
+    print 'Created in:', time.time() - start, 'seconds \n'
+    return g, mix_df
 
 
 def pairwise(iterable):
@@ -164,7 +194,7 @@ def _do_ncut(a, nb_classes):
     # discretize to obtain cluster id
     eigenvec_discrete = ncut.discretisation(eigen_vec)
     res = eigenvec_discrete.dot(np.arange(1, nb_classes + 1))
-    f = lambda x: x -1  # remap classes between 0 and 3
+    f = lambda k: k - 1  # remap classes between 0 and 3
     clusters = f(res)
 
     return clusters, pos
@@ -180,7 +210,7 @@ def apply_ncut(g, nb_classes):
         d['pos'] = pos[i]
 
 
-def n_cut_purity(g, key='genre'):
+def ncut_purity(g, key='genre'):
     id2cluster = nx.get_node_attributes(g, 'ncut_id')
     id2genre = nx.get_node_attributes(g, key)
     cluster2id = groupby_value(id2cluster)
@@ -201,21 +231,14 @@ def n_cut_purity(g, key='genre'):
     return float(good) / g.number_of_nodes()
 
 
-def build_rating_graph(library, playlists, song_id_key, directed=False):
-    g = nx.Graph()
-    if directed:
-        g = nx.DiGraph()
-    g.add_nodes_from(library)
-    for pid, row in playlists.iterrows():
-        for (u, v) in pairwise(row[song_id_key]):
-            if not g.has_edge(u, v):
-                eid = None
-                if not directed:
-                    eid = str(v) + '-' + str(u) if u > v else str(u) + '-' + str(v)
-                else:
-                    eid = str(u) + '-' + str(v)
-                g.add_edge(u, v, rating=1, pid=[pid], eid=eid, weight=1)
-            else:
-                g[u][v]['rating'] += 1
-                g[u][v]['pid'].append(pid)
-    return g
+def ncut_labeling(g, df, nb_cuts, ncut_purity_key):
+    apply_ncut(g, nb_cuts)
+    # Get ncut_id from graph
+    d = nx.get_node_attributes(g, 'ncut_id')
+    # relabel nodes from the graph
+    mapping_relabel = dict(zip(map(lambda x: x[0], sorted(d.items(), key=operator.itemgetter(1))), itertools.count()))
+    g = nx.relabel_nodes(g, mapping_relabel, copy=True)
+    # Sort nodes from graph according to their aotm_id, get the ncut_id value
+    df['ncut_id'] = map(lambda x: x[1], sorted(d.items(), key=operator.itemgetter(0)))
+    df.sort('ncut_id', inplace=True)
+    return g, df

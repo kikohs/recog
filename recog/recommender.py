@@ -46,12 +46,12 @@ def create_recommendation_matrix(a_df, b_idx, gb_key, dataset_name, normalize=Tr
     return c
 
 
-def init_factor_matrices(nb_row, nb_col, rank):
+def init_factor_matrices(nb_row, nb_col, rank, norm='l2'):
     a = np.random.random((nb_row, rank))
     b = np.random.random((rank, nb_col))
 
-    a = normalize(a, norm='l1', axis=0)
-    b = normalize(b, norm='l1', axis=1)
+    a = normalize(a, norm=norm, axis=0)
+    b = normalize(b, norm=norm, axis=1)
     return a, b
 
 
@@ -71,10 +71,10 @@ def update_step(theta_tv_a, theta_tv_b, a, b, ka, norm_ka, kb, norm_kb, omega, o
 
 
 def update_factor(theta_tv, X, Y, K, normK, omega, OC,
-                  stop_criterion, min_iter=70, nb_iter_max=400):
+                  stop_criterion, min_iter=70, nb_iter_max=300):
     # L2-norm of columns
-    # X = (X.T / np.linalg.norm(X, axis=1)).T
-    # Y = Y / np.linalg.norm(Y, axis=0)
+    X = (X.T / (np.linalg.norm(X, axis=1) + 1e-6)).T
+    Y /= np.linalg.norm(Y, axis=0) + 1e-6
 
     # Primal variable
     Xb = X
@@ -86,9 +86,7 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
 
     # 2-norm largest singular value
     normY = np.linalg.norm(Y, 2)
-    print 'norm Y:', normY
-    # TODO remove
-    normY = 10.0
+    # print 'norm Y:', normY
 
     # Primal-dual parameters
     gamma1 = 1e-1
@@ -133,6 +131,7 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
         Xb = X + 0.5 * theta1 * t + 0.5 * theta2 * t
 
         delta = np.linalg.norm(t)
+        # print delta
         if math.isnan(delta) or delta <= 1e-9:
             # No enough iterations
             delta = 1
@@ -167,11 +166,15 @@ def proximal_training(C, WA, WB, rank, O=None, theta_tv_a=1e-4*5,
     normKB = normKB[0]
 
     if O is None:  # no observation mask
-        O = np.ones(C.shape)
-        OC = C.copy()
-    else:
-        # Mask over rating matrix, computed once
-        OC = O * C
+        O = 0.1 * np.ones(C.shape)
+        mask = C > 0
+        # mask = np.array((C > 0).toarray())
+        O[mask] = 1.0
+        O = np.array(O)
+
+    # Mask over rating matrix, computed once
+    # OC = O * C.toarray()
+    OC = O * C
 
     stop = False
     nb_iter = 0
@@ -187,6 +190,7 @@ def proximal_training(C, WA, WB, rank, O=None, theta_tv_a=1e-4*5,
         deltaA = np.linalg.norm(A - old_A) / np.linalg.norm(A)
         deltaB = np.linalg.norm(B - old_B) / np.linalg.norm(B)
 
+        delta = deltaB
         if math.isnan(delta):
             stop = True
             error = True
@@ -197,7 +201,7 @@ def proximal_training(C, WA, WB, rank, O=None, theta_tv_a=1e-4*5,
             print 'Delta B:', deltaB
             print
 
-        if deltaB <= stop_criterion and nb_iter > nb_min_iter:
+        if delta <= stop_criterion and nb_iter > nb_min_iter:
             stop = True
 
     if not error:
