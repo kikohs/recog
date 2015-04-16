@@ -63,9 +63,9 @@ def graph_gradient_operator(g, key='weight'):
     return sp.sparse.csr_matrix(k)
 
 
-def update_step(theta_tv_a, theta_tv_b, a, b, ka, norm_ka, kb, norm_kb, omega, oc, stop_criterion, min_iter):
-    b, a = update_factor(theta_tv_b, b, a, kb, norm_kb, omega, oc, stop_criterion, min_iter)
-    a, b = update_factor(theta_tv_a, a.T, b.T, ka, norm_ka, omega.T, oc.T, stop_criterion, min_iter)
+def update_step(theta_tv_a, theta_tv_b, a, b, ka, norm_ka, kb, norm_kb, omega, oc, stop_criterion, min_iter, max_iter):
+    b, a = update_factor(theta_tv_b, b, a, kb, norm_kb, omega, oc, stop_criterion, min_iter, max_iter)
+    a, b = update_factor(theta_tv_a, a.T, b.T, ka, norm_ka, omega.T, oc.T, stop_criterion, min_iter, max_iter)
     a, b = a.T, b.T
     return a, b
 
@@ -85,7 +85,7 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
     P2 = K.dot(X.T)
 
     # 2-norm largest singular value
-    normY = np.linalg.norm(Y, 2)
+    normY = sp.linalg.norm(Y, 2)
     # print 'norm Y:', normY
 
     # Primal-dual parameters
@@ -100,10 +100,14 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
 
     stop = False
     nb_iter = 0
+
+    # Precompute
+    v = 4 * sigma1 * OC
+
     while not stop and nb_iter < nb_iter_max:
         # update P1 (NMF part)
         P1 += sigma1 * Y.dot(Xb)
-        t = np.square((P1 - omega)) + 4 * sigma1 * OC
+        t = np.square(P1 - omega) + v
         P1 = 0.5 * (P1 + omega - np.sqrt(t))
 
         # update P2 (TV)
@@ -128,16 +132,16 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
 
         # update primal variable for acceleration
         t = X - Xold
-        Xb = X + 0.5 * theta1 * t + 0.5 * theta2 * t
+        Xb = X + (0.5 * theta1) * t + (0.5 * theta2) * t
 
-        delta = np.linalg.norm(t)
-        # print delta
-        if math.isnan(delta) or delta <= 1e-9:
-            # No enough iterations
-            delta = 1
+        # delta = np.linalg.norm(t)
+        # # print delta
+        # if math.isnan(delta) or delta <= 1e-9:
+        #     # No enough iterations
+        #     delta = 1
 
-        if delta <= stop_criterion and nb_iter > min_iter:
-            stop = True
+        # if delta <= stop_criterion and nb_iter > min_iter:
+        #     stop = True
 
         # update Xold
         Xold = X
@@ -146,10 +150,11 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
     return X, Y
 
 
-def proximal_training(C, WA, WB, rank, O=None, theta_tv_a=1e-4*5,
-                      theta_tv_b=1e-4*5,
+def proximal_training(C, WA, WB, rank, Obs=None,
+                      theta_tv_a=50,
+                      theta_tv_b=0.01,
                       nb_iter_max=30, nb_min_iter=10, stop_criterion=1e-2,
-                      stop_criterion_inner=5e-4, min_iter_inner=70, verbose=False):
+                      stop_criterion_inner=1e-2, min_iter_inner=70, max_iter_inner=300, verbose=0):
     start = time.time()
     GA = utils.convert_adjacency_matrix(WA)
     GB = utils.convert_adjacency_matrix(WB)
@@ -165,51 +170,53 @@ def proximal_training(C, WA, WB, rank, O=None, theta_tv_a=1e-4*5,
     normKA = normKA[0]
     normKB = normKB[0]
 
-    if O is None:  # no observation mask
-        O = 0.1 * np.ones(C.shape)
+    if Obs is None:  # no observation mask
+        Obs = 0.1 * np.ones(C.shape)
         mask = C > 0
-        # mask = np.array((C > 0).toarray())
-        O[mask] = 1.0
-        O = np.array(O)
+        if isinstance(C, sp.sparse.base.spmatrix):
+            mask = mask.toarray()
+        Obs[mask] = 1.0
+        Obs = np.array(Obs)
 
     # Mask over rating matrix, computed once
-    # OC = O * C.toarray()
-    OC = O * C
+    OC = C.copy()
+    # OC = Obs * C
 
     stop = False
     nb_iter = 0
     delta = 0
     error = False
     while not stop and nb_iter < nb_iter_max:
+        tick = time.time()
+
         old_A = A
         old_B = B
-        A, B = update_step(theta_tv_a, theta_tv_b, A, B, KA, normKA, KB, normKB, O, OC,
-                           stop_criterion_inner, min_iter_inner)
+        A, B = update_step(theta_tv_a, theta_tv_b, A, B, KA, normKA, KB, normKB, Obs, OC,
+                           stop_criterion_inner, min_iter_inner, max_iter_inner)
         nb_iter += 1
 
-        deltaA = np.linalg.norm(A - old_A) / np.linalg.norm(A)
-        deltaB = np.linalg.norm(B - old_B) / np.linalg.norm(B)
+        if verbose > 0:
+            if verbose > 1:
+                deltaA = sp.linalg.norm(A - old_A) / sp.linalg.norm(A)
+                deltaB = sp.linalg.norm(B - old_B) / sp.linalg.norm(B)
 
-        delta = deltaB
-        if math.isnan(delta):
-            stop = True
-            error = True
+                delta = deltaB
+                if math.isnan(delta):
+                    stop = True
+                    error = True
 
-        if verbose:
-            print 'Step:', nb_iter, 'err:', np.linalg.norm(C - A.dot(B))
-            print 'Delta A:', deltaA
-            print 'Delta B:', deltaB
-            print
+                print('Err: {}'.format(sp.linalg.norm(C - A.dot(B))))
+                print 'Delta A:', deltaA
+                print 'Delta B:', deltaB, '\n'
 
-        if delta <= stop_criterion and nb_iter > nb_min_iter:
-            stop = True
+                if delta <= stop_criterion and nb_iter > nb_min_iter:
+                    stop = True
+
+            print('Step: {} done in {} seconds'.format(nb_iter, time.time() - tick))
 
     if not error:
-        if delta <= stop_criterion:
-            print 'Converged in', nb_iter, 'steps,', 'reconstruction error:', np.linalg.norm(C - A.dot(B))
-        else:
-            print 'Max iterations reached, did not converged after', nb_iter, 'steps,', \
-                'reconstruction error:', np.linalg.norm(C - A.dot(B))
+            print 'Max iterations reached', nb_iter, 'steps,', \
+                'reconstruction error:', sp.linalg.norm(C - A.dot(B))
     else:
         print 'Error: try to increase min_iter_inner, the number of iteration for the inner loop'
 
@@ -237,7 +244,7 @@ def recommend(B, keypoints, k, idmap=None, threshold=1e-3):
     q = B.dot(mask).dot(ratings)
 
     # Results
-    t = np.linalg.solve(z, q)
+    t = sp.linalg.solve(z, q)
     raw = np.array(t.T.dot(B))
 
     # Filter numeric errors

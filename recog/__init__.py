@@ -8,3 +8,4 @@ __version__ = '0.1.0'
 from recommender import *
 from utils import *
 from graph import *
+from notebook import *

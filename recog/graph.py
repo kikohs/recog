@@ -242,3 +242,16 @@ def ncut_labeling(g, df, nb_cuts, ncut_purity_key):
     df['ncut_id'] = map(lambda x: x[1], sorted(d.items(), key=operator.itemgetter(0)))
     df.sort('ncut_id', inplace=True)
     return g, df
+
+
+def remove_edges_keep_nodes(g, to_remove, song_df_index):
+    trash = []
+    bad_srcs = set([song_df_index.get_loc(i) for i in to_remove])
+    for src in bad_srcs:
+        tgts = set(g[src].keys()) & bad_srcs
+        edges = [(src, t) for t in tgts]
+        trash.append(edges)
+
+    trash = list(itertools.chain(*trash))
+    g.remove_edges_from(trash)
+    return g
