@@ -164,13 +164,15 @@ def proximal_training(C, WA, WB, rank, Obs=None,
                       theta_tv_a=50,
                       theta_tv_b=0.01,
                       nb_iter_max=30, nb_min_iter=10, stop_criterion=1e-2,
-                      stop_criterion_inner=1e-2, min_iter_inner=70, max_iter_inner=300, verbose=0):
+                      stop_criterion_inner=1e-2, min_iter_inner=70, max_iter_inner=300, verbose=0,
+                      A=None, B=None):
     start = time.time()
     GA = utils.convert_adjacency_matrix(WA)
     GB = utils.convert_adjacency_matrix(WB)
 
     # A, B = init_factor_matrices(C.shape[0], C.shape[1], rank)
-    A, B = nmf._initialize_nmf(C, rank, None)
+    if A is None or B is None:
+        A, B = nmf._initialize_nmf(C, rank, None)
 
     KA = graph_gradient_operator(GA)
     KB = graph_gradient_operator(GB)
@@ -272,7 +274,7 @@ def recommend(B, keypoints, k, idmap=None, threshold=1e-3):
     return elems, raw
 
 
-def recommend2(A, B, keypoints, k, idmap=None, threshold=1e-3):
+def recommend2(A, B, keypoints, k, idmap=None, threshold=1e-6, knn=50):
     """Keypoints: list of tuple (movie, rating) or (song, rating), idmap: if given maps idspace to index in matrix"""
     rank = B.shape[0]
     length = B.shape[1]
@@ -298,10 +300,10 @@ def recommend2(A, B, keypoints, k, idmap=None, threshold=1e-3):
     w = np.exp(-np.square(z) / (sigma * sigma))
 
     # Pick knn Best
-    knn = 5
     idx = np.argsort(w)
-    top_w =  w[idx][-knn:]
-    top_idx = idx[-knn:]
+    nb_elems = min(knn, len(w))
+    top_w = w[idx][-nb_elems:]
+    top_idx = idx[-nb_elems:]
 
     # row size multiplication (new solution)
     row_a = np.sum(np.multiply(A[top_idx],  top_w[:, np.newaxis]), axis=0) / np.sum(top_w)
@@ -310,10 +312,11 @@ def recommend2(A, B, keypoints, k, idmap=None, threshold=1e-3):
     # Filter numeric errors
     mask = raw > threshold
     points = raw[mask]
+    nb_elems = min(k, len(points))
     # Get valid subset of songs
     position = np.arange(len(mask))[mask]
     # Get unsorted subset index of k highest values
-    ind = np.argpartition(points, -k)[-k:]
+    ind = np.argpartition(points, -nb_elems)[-nb_elems:]
     # Get sorted subset index of highest values
     ind = ind[np.argsort(points[ind])]
     # map subset index to global position of k elements of highest value

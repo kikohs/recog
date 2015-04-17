@@ -70,13 +70,20 @@ def pick_random_sample_genre(song_df, genre, sample_size):
 
 
 def playlist_category_score(reco_df, playlist_df, playlist_category, song_id_key, playlist_cat_key):
-    hist = playlist_df[playlist_df[song_id_key].isin(reco_df.index.values)][playlist_cat_key].value_counts()
-    f_hist = hist[hist.index == playlist_category]
-    if f_hist.empty:
+
+    if reco_df.empty:
         return 0.0
 
-    score = f_hist.values[0] / float(np.sum(hist))
-    return score
+    p_subset = playlist_df[playlist_df[song_id_key].isin(reco_df.index.values)]
+    # If song belong to different categories get current category
+    total = 0
+    count = 0
+    for i, row in p_subset.groupby(song_id_key):
+        m = (row[playlist_cat_key] == playlist_category).any()
+        if m:
+            count += 1
+        total += 1
+    return count / float(total)
 
 
 def recommend_from_playlist(playlist, song_df, A, B, playlist_size, idmap, threshold=1e-4, use_both=False):
