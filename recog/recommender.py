@@ -19,6 +19,9 @@ from sklearn.preprocessing import normalize
 # project imports
 import utils
 
+import sklearn.decomposition.nmf as nmf
+
+from numba import autojit, vectorize, float64
 
 def soft_thresholding(data, value, substitute=0):
     mvalue = -value
@@ -73,7 +76,10 @@ def update_step(theta_tv_a, theta_tv_b, a, b, ka, norm_ka, kb, norm_kb, omega, o
 def update_factor(theta_tv, X, Y, K, normK, omega, OC,
                   stop_criterion, min_iter=70, nb_iter_max=300):
     # L2-norm of columns
-    X = (X.T / (np.linalg.norm(X, axis=1) + 1e-6)).T
+    # X = (X.T / (np.linalg.norm(X, axis=1) + 1e-6)).T
+    divider = np.linalg.norm(X, axis=1) + 1e-6
+    X /= divider[:, np.newaxis]
+
     Y /= np.linalg.norm(Y, axis=0) + 1e-6
 
     # Primal variable
@@ -120,19 +126,23 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
         # set negative values to 0 (element wise)
         X = np.maximum(X, 0)
 
-        # Acceleration, update time-steps
+        # # Acceleration, update time-steps
         # theta1 = 1. / np.sqrt(1 + 2 * gamma1 * tau1)
         # tau1 = tau1 * theta1
         # sigma1 = sigma1 / theta1
         # theta2 = 1. / np.sqrt(1 + 2 * gamma2 * tau2)
         # tau2 = tau2 * theta2
         # sigma2 = sigma2 / theta2
-        theta1 = 1.0
-        theta2 = 1.0
 
         # update primal variable for acceleration
-        t = X - Xold
-        Xb = X + (0.5 * theta1) * t + (0.5 * theta2) * t
+        # t = X - Xold
+        # Xb = X + (0.5 * theta1) * t + (0.5 * theta2) * t
+
+        # TODO change ?
+        # if theta1 == theta2 == 1
+        theta1 = 1.0
+        theta2 = 1.0
+        Xb = 2 * X - Xold
 
         # delta = np.linalg.norm(t)
         # # print delta
@@ -159,7 +169,8 @@ def proximal_training(C, WA, WB, rank, Obs=None,
     GA = utils.convert_adjacency_matrix(WA)
     GB = utils.convert_adjacency_matrix(WB)
 
-    A, B = init_factor_matrices(C.shape[0], C.shape[1], rank)
+    # A, B = init_factor_matrices(C.shape[0], C.shape[1], rank)
+    A, B = nmf._initialize_nmf(C, rank, None)
 
     KA = graph_gradient_operator(GA)
     KB = graph_gradient_operator(GB)
@@ -247,6 +258,55 @@ def recommend(B, keypoints, k, idmap=None, threshold=1e-3):
     t = sp.linalg.solve(z, q)
     raw = np.array(t.T.dot(B))
 
+    # Filter numeric errors
+    mask = raw > threshold
+    points = raw[mask]
+    # Get valid subset of songs
+    position = np.arange(len(mask))[mask]
+    # Get unsorted subset index of k highest values
+    ind = np.argpartition(points, -k)[-k:]
+    # Get sorted subset index of highest values
+    ind = ind[np.argsort(points[ind])]
+    # map subset index to global position of k elements of highest value
+    elems = position[ind]
+    return elems, raw
+
+
+def recommend2(A, B, keypoints, k, idmap=None, threshold=1e-3):
+    """Keypoints: list of tuple (movie, rating) or (song, rating), idmap: if given maps idspace to index in matrix"""
+    rank = B.shape[0]
+    length = B.shape[1]
+
+    mask = np.zeros(length)
+    if idmap is not None:
+        mask_idx = map(lambda x: idmap[x[0]], keypoints)
+    else:
+        mask_idx = map(lambda x: x[0], keypoints)
+    mask[mask_idx] = 1.0
+    mask = np.diag(mask)
+
+    ratings = np.zeros(length)
+    ratings[mask_idx] = map(lambda x: x[1], keypoints)
+
+    z = B.dot(mask).dot(B.T) + 1e-3 * np.eye(rank)
+    q = B.dot(mask).dot(ratings)
+
+    # Results
+    row_a = sp.linalg.solve(z, q)
+    z = np.linalg.norm(A - row_a, axis=1)
+    sigma = np.mean(z) / 4.0
+    w = np.exp(-np.square(z) / (sigma * sigma))
+
+    # Pick knn Best
+    knn = 5
+    idx = np.argsort(w)
+    top_w =  w[idx][-knn:]
+    top_idx = idx[-knn:]
+
+    # row size multiplication (new solution)
+    row_a = np.sum(np.multiply(A[top_idx],  top_w[:, np.newaxis]), axis=0) / np.sum(top_w)
+    # Multiply estimated C by B
+    raw = np.array(row_a.dot(B))
     # Filter numeric errors
     mask = raw > threshold
     points = raw[mask]
