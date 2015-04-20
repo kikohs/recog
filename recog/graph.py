@@ -82,11 +82,12 @@ def create_song_graph_impl(feat, n_neighbors, metadata=None, p=1, directed=False
 
 
 def create_song_graph(feat_df, song_df, nb_neighbors=10, metadata=['artist_name', 'title', 'genre', 'genre_topic'],
-                      ncut_key='genre_topic'):
+                      ncut_key='genre_topic', nb_cuts=None):
     """Create song graph and label the nodes according to their N-cut cluster id"""
     start = time.time()
     g = create_song_graph_impl(feat_df, nb_neighbors, song_df[metadata], relabel_nodes=True)
-    nb_cuts = len(np.unique(song_df[ncut_key]))
+    if nb_cuts is None:
+        nb_cuts = len(np.unique(song_df[ncut_key]))
     print 'Ncuts clusters:', nb_cuts
     g, song_df = ncut_labeling(g, song_df, nb_cuts, ncut_key)
     print 'Created in:', time.time() - start, 'seconds \n'
@@ -162,8 +163,13 @@ def create_playlist_graph(mix_df, playlist_df, playlist_id_key, song_id_key, p_c
     nb_cuts = len(np.unique(mix_df[p_category_key]))
     print 'Ncuts clusters:', nb_cuts
     g, mix_df = ncut_labeling(g, mix_df, nb_cuts, p_category_key)
+
+
+    ncut_map = dict(mix_df['ncut_id'].iteritems())
+    playlist_df['ncut_id'] = playlist_df[mix_df.index.name].apply(lambda x: ncut_map[x])
+    playlist_df.sort('ncut_id', inplace=True)
     print 'Created in:', time.time() - start, 'seconds \n'
-    return g, mix_df
+    return g, mix_df, playlist_df
 
 
 def pairwise(iterable):

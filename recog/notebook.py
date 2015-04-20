@@ -69,17 +69,15 @@ def pick_random_sample_genre(song_df, genre, sample_size):
     return np.random.choice(subset.index.values, sample_size)
 
 
-def playlist_category_score(reco_df, playlist_df, playlist_category, song_id_key, playlist_cat_key):
-
+def playlist_key_score(reco_df, playlist_df, target, song_id_key, key):
     if reco_df.empty:
         return 0.0
 
     p_subset = playlist_df[playlist_df[song_id_key].isin(reco_df.index.values)]
-    # If song belong to different categories get current category
     total = 0
     count = 0
     for i, row in p_subset.groupby(song_id_key):
-        m = (row[playlist_cat_key] == playlist_category).any()
+        m = (row[key] == target).any()
         if m:
             count += 1
         total += 1
@@ -96,19 +94,6 @@ def recommend_from_playlist(playlist, song_df, A, B, playlist_size, idmap, thres
     return song_df.iloc[reco_idx], song_df.loc[playlist], raw
 
 
-def test_playlists(mix_df, playlist_df, song_df, A, B, playlist_size, idmap, song_id_key,
-                   playlist_cat_key, threshold=1e-4, use_both=False):
-    results = []
-    for mix_id, row in mix_df.iterrows():
-        p_category = row[playlist_cat_key]
-        playlist = row[song_id_key]
-        reco_df, _, _ = recommend_from_playlist(playlist, song_df, A, B, playlist_size, idmap, threshold, use_both)
-        score = playlist_category_score(reco_df, playlist_df, p_category, song_id_key, playlist_cat_key)
-        results.append({mix_df.index.name: mix_id, playlist_cat_key: p_category, 'score': score})
-
-    return pd.DataFrame(results)
-
-
 def test_all_categories(selected_categories, playlist_df, song_df, sample_size, A,
                         B, playlist_size, idmap, song_id_key, playlist_cat_key, threshold=1e-4,
                         sample_from_random=False, nb_playlist=1, use_both=False):
@@ -123,9 +108,10 @@ def test_all_categories(selected_categories, playlist_df, song_df, sample_size, 
                         for _ in xrange(nb_playlist)]
 
         for i, playlist in enumerate(playlist_set):
-            reco_df, _, _ = recommend_from_playlist(playlist, song_df, A, B, playlist_size, idmap, threshold, use_both)
-            score = playlist_category_score(reco_df, playlist_df, p_category, song_id_key, playlist_cat_key)
-            results.append({'mix_id': i, playlist_cat_key: p_category, 'score': score})
+            score = recommend_score(playlist, p_category, playlist_cat_key, 'ncut_id',
+                                    playlist_df, song_df, A, B, playlist_size, idmap, song_id_key, threshold)
+            score['id'] = i
+            results.append(score)
 
     return pd.DataFrame(results)
 
@@ -136,18 +122,59 @@ def sampled_vs_random(nb_laps, selected_categories, playlist_df, song_df, sample
     results = test_all_categories(selected_categories, playlist_df, song_df, sample_size, A, B, k, idmap,
                                   song_id_key, playlist_cat_key, nb_playlist=nb_laps, use_both=use_both)
 
-    m = results.groupby(playlist_cat_key).agg({'score': np.mean})
-    m.rename(columns={'score': 'sampled'}, inplace=True)
+    m = results.groupby('p_' + playlist_cat_key).mean()
+    m.drop('id', axis=1, inplace=True)
 
     results_random = test_all_categories(selected_categories, playlist_df, song_df,sample_size, A, B, k, idmap,
                                          song_id_key, playlist_cat_key, sample_from_random=True,
                                          nb_playlist=nb_laps, use_both=use_both)
 
-    n = results_random.groupby(playlist_cat_key).agg({'score': np.mean})
-    n.rename(columns={'score': 'random'}, inplace=True)
+    n = results_random.groupby('p_' + playlist_cat_key).mean()
+    n.drop('id', axis=1, inplace=True)
 
-    res = pd.concat([m, n], axis=1)
-    res['sampled / random absolute gain'] = (res['sampled'] - res['random']) * 100
-    res['sampled / random relative gain'] = ((res['sampled'] / res['random']) - 1) * 100
+    # res['sampled / random absolute gain'] = (res['sampled'] - res['random']) * 100
+    # res['sampled / random relative gain'] = ((res['sampled'] / res['random']) - 1) * 100
 
-    return res
+    return m, n
+
+
+def songs_key_score(df, target_key):
+    res = df.groupby(target_key).size()
+    if res.empty:
+        return 0.0
+    score = res.iloc[0] / float(res.sum())
+    return score
+
+
+def recommend_score(playlist, ptarget, ptarget_key, starget_key, playlist_df, song_df, A, B,
+                    playlist_size, idmap, song_id_key, threshold=1e-4):
+    reco_df, input_df, _ = recommend_from_playlist(playlist, song_df, A, B, playlist_size, idmap, threshold, True)
+    p_reco_score = playlist_key_score(reco_df, playlist_df, ptarget, song_id_key, ptarget_key)
+    p_input_score = playlist_key_score(input_df, playlist_df, ptarget, song_id_key, ptarget_key)
+    s_reco_score = songs_key_score(reco_df, starget_key)
+    s_input_score = songs_key_score(input_df, starget_key)
+
+    ptarget_key = 'p_' + ptarget_key
+    starget_key = 's_' + starget_key
+
+    return {ptarget_key: ptarget,
+            'starget_key': starget_key,
+            'p_rec_score': p_reco_score,
+            'p_input_score': p_input_score,
+            's_rec_score': s_reco_score,
+            's_input_score': s_input_score
+            }
+
+
+def test_playlists(mix_df, playlist_df, song_df, A, B, playlist_size, idmap, song_id_key,
+                   playlist_cat_key, threshold=1e-4, use_both=False):
+    results = []
+    for mix_id, row in mix_df.iterrows():
+        p_category = row[playlist_cat_key]
+        playlist = row[song_id_key]
+        score = recommend_score(playlist, p_category, playlist_cat_key, 'ncut_id',
+                                playlist_df, song_df, A, B, playlist_size, idmap, song_id_key, threshold)
+
+        score[mix_df.index.name] = mix_id
+        results.append(score)
+    return pd.DataFrame(results).set_index('mix_id')
