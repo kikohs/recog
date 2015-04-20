@@ -21,7 +21,6 @@ import utils
 
 import sklearn.decomposition.nmf as nmf
 
-from numba import autojit, vectorize, float64
 
 def soft_thresholding(data, value, substitute=0):
     mvalue = -value
