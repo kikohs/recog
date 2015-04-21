@@ -244,10 +244,14 @@ def ncut_labeling(g, df, nb_cuts, ncut_purity_key):
     # relabel nodes from the graph
     mapping_relabel = dict(zip(map(lambda x: x[0], sorted(d.items(), key=operator.itemgetter(1))), itertools.count()))
     g = nx.relabel_nodes(g, mapping_relabel, copy=True)
+    g.graph['nb_cuts'] = nb_cuts
     # Sort nodes from graph according to their aotm_id, get the ncut_id value
     df['ncut_id'] = map(lambda x: x[1], sorted(d.items(), key=operator.itemgetter(0)))
-    df.sort('ncut_id', inplace=True)
-    return g, df
+
+    graph_to_df = map(lambda x: x[1], sorted(nx.get_node_attributes(g, df.index.name).items(), key=operator.itemgetter(0)))
+    idx = pd.Index(graph_to_df)
+    idx.name = df.index.name
+    return g, df.reindex(graph_to_df)
 
 
 def remove_edges_keep_nodes(g, to_remove, song_df_index):

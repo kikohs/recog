@@ -163,15 +163,21 @@ def proximal_training(C, WA, WB, rank, Obs=None,
                       theta_tv_a=50,
                       theta_tv_b=0.01,
                       nb_iter_max=30, nb_min_iter=10, stop_criterion=1e-2,
-                      stop_criterion_inner=1e-2, min_iter_inner=70, max_iter_inner=300, verbose=0,
-                      A=None, B=None):
+                      stop_criterion_inner=1e-2, min_iter_inner=70, max_iter_inner=600, verbose=0,
+                      A=None, B=None, data_path=None, load_from_disk=False, validation_func=None):
     start = time.time()
     GA = utils.convert_adjacency_matrix(WA)
     GB = utils.convert_adjacency_matrix(WB)
 
     # A, B = init_factor_matrices(C.shape[0], C.shape[1], rank)
-    if A is None or B is None:
-        A, B = nmf._initialize_nmf(C, rank, None)
+
+    if load_from_disk and data_path is not None:
+        data = np.load(data_path)
+        A = data['A']
+        B = data['B']
+    else:
+        if A is None or B is None:
+            A, B = nmf._initialize_nmf(C, rank, None)
 
     KA = graph_gradient_operator(GA)
     KB = graph_gradient_operator(GB)
@@ -191,7 +197,7 @@ def proximal_training(C, WA, WB, rank, Obs=None,
         Obs = np.array(Obs)
 
     # Mask over rating matrix, computed once
-    OC = C.copy()
+    OC = C.toarray()
     # OC = Obs * C
 
     stop = False
@@ -207,7 +213,15 @@ def proximal_training(C, WA, WB, rank, Obs=None,
                            stop_criterion_inner, min_iter_inner, max_iter_inner)
         nb_iter += 1
 
+        if data_path is not None:
+            np.savez(data_path, A=A, B=B)
+
         if verbose > 0:
+            if validation_func is not None:
+                print validation_func(np.array(A), np.array(B)), '\n'
+
+            print('Step: {} done in {} seconds'.format(nb_iter, time.time() - tick))
+
             if verbose > 1:
                 deltaA = sp.linalg.norm(A - old_A) / sp.linalg.norm(A)
                 deltaB = sp.linalg.norm(B - old_B) / sp.linalg.norm(B)
@@ -223,8 +237,6 @@ def proximal_training(C, WA, WB, rank, Obs=None,
 
                 if delta <= stop_criterion and nb_iter > nb_min_iter:
                     stop = True
-
-            print('Step: {} done in {} seconds'.format(nb_iter, time.time() - tick))
 
     if not error:
             print 'Max iterations reached', nb_iter, 'steps,', \
