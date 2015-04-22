@@ -38,9 +38,12 @@ def create_double_stochastic_matrix(a, stop_criterion=1e-6, nb_iter_max=1, norm=
     return c
 
 
-def plot_factor_mat(img, title=''):
+def plot_factor_mat(img, title='', cmap=None):
     plt.title(title)
-    h = plt.imshow(img, interpolation='nearest', aspect='auto')
+    cm = None
+    if cmap is not None:
+        cm = plt.get_cmap(cmap)
+    h = plt.imshow(img, interpolation='nearest', aspect='auto', cmap=cm)
     h.axes.set_position([0, 0, 1, 1])
     h.axes.set_xlim(-1, img.shape[1])
     h.axes.set_ylim(img.shape[0], -1)

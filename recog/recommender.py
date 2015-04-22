@@ -65,15 +65,14 @@ def graph_gradient_operator(g, key='weight'):
     return sp.sparse.csr_matrix(k)
 
 
-def update_step(theta_tv_a, theta_tv_b, a, b, ka, norm_ka, kb, norm_kb, omega, oc, stop_criterion, min_iter, max_iter):
-    b, a = update_factor(theta_tv_b, b, a, kb, norm_kb, omega, oc, stop_criterion, min_iter, max_iter)
-    a, b = update_factor(theta_tv_a, a.T, b.T, ka, norm_ka, omega.T, oc.T, stop_criterion, min_iter, max_iter)
+def update_step(theta_tv_a, theta_tv_b, a, b, ka, norm_ka, kb, norm_kb, omega, oc, max_iter):
+    b, a = update_factor(theta_tv_b, b, a, kb, norm_kb, omega, oc, max_iter)
+    a, b = update_factor(theta_tv_a, a.T, b.T, ka, norm_ka, omega.T, oc.T, max_iter)
     a, b = a.T, b.T
     return a, b
 
 
-def update_factor(theta_tv, X, Y, K, normK, omega, OC,
-                  stop_criterion, min_iter=70, nb_iter_max=300):
+def update_factor(theta_tv, X, Y, K, normK, omega, OC, nb_iter_max=300):
     # L2-norm of columns
     # X = (X.T / (np.linalg.norm(X, axis=1) + 1e-6)).T
     divider = np.linalg.norm(X, axis=1) + 1e-6
@@ -143,15 +142,6 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
         theta2 = 1.0
         Xb = 2 * X - Xold
 
-        # delta = np.linalg.norm(t)
-        # # print delta
-        # if math.isnan(delta) or delta <= 1e-9:
-        #     # No enough iterations
-        #     delta = 1
-
-        # if delta <= stop_criterion and nb_iter > min_iter:
-        #     stop = True
-
         # update Xold
         Xold = X
         nb_iter += 1
@@ -160,11 +150,12 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC,
 
 
 def proximal_training(C, WA, WB, rank, Obs=None,
-                      theta_tv_a=50,
+                      theta_tv_a=200,
                       theta_tv_b=0.01,
-                      nb_iter_max=30, nb_min_iter=10, stop_criterion=1e-2,
-                      stop_criterion_inner=1e-2, min_iter_inner=70, max_iter_inner=600, verbose=0,
-                      A=None, B=None, data_path=None, load_from_disk=False, validation_func=None):
+                      max_outer_iter=10,
+                      max_inner_iter=800,
+                      A=None, B=None, data_path=None,
+                      load_from_disk=False, validation_func=None, verbose=0):
     start = time.time()
     GA = utils.convert_adjacency_matrix(WA)
     GB = utils.convert_adjacency_matrix(WB)
@@ -198,19 +189,13 @@ def proximal_training(C, WA, WB, rank, Obs=None,
 
     # Mask over rating matrix, computed once
     OC = C.toarray()
-    # OC = Obs * C
 
     stop = False
     nb_iter = 0
-    delta = 0
     error = False
-    while not stop and nb_iter < nb_iter_max:
+    while not stop and nb_iter < max_outer_iter:
         tick = time.time()
-
-        old_A = A
-        old_B = B
-        A, B = update_step(theta_tv_a, theta_tv_b, A, B, KA, normKA, KB, normKB, Obs, OC,
-                           stop_criterion_inner, min_iter_inner, max_iter_inner)
+        A, B = update_step(theta_tv_a, theta_tv_b, A, B, KA, normKA, KB, normKB, Obs, OC, max_inner_iter)
         nb_iter += 1
 
         if data_path is not None:
@@ -218,25 +203,9 @@ def proximal_training(C, WA, WB, rank, Obs=None,
 
         if verbose > 0:
             if validation_func is not None:
-                print validation_func(np.array(A), np.array(B)), '\n'
+                print validation_func(np.array(A), np.array(B))
 
-            print('Step: {} done in {} seconds'.format(nb_iter, time.time() - tick))
-
-            if verbose > 1:
-                deltaA = sp.linalg.norm(A - old_A) / sp.linalg.norm(A)
-                deltaB = sp.linalg.norm(B - old_B) / sp.linalg.norm(B)
-
-                delta = deltaB
-                if math.isnan(delta):
-                    stop = True
-                    error = True
-
-                print('Err: {}'.format(sp.linalg.norm(C - A.dot(B))))
-                print 'Delta A:', deltaA
-                print 'Delta B:', deltaB, '\n'
-
-                if delta <= stop_criterion and nb_iter > nb_min_iter:
-                    stop = True
+            print('Step:{} done in {} seconds\n'.format(nb_iter, time.time() - tick))
 
     if not error:
             print 'Max iterations reached', nb_iter, 'steps,', \
@@ -285,7 +254,7 @@ def recommend(B, keypoints, k, idmap=None, threshold=1e-3):
     return elems, raw
 
 
-def recommend2(A, B, keypoints, k, idmap=None, threshold=1e-6, knn=50):
+def recommend2(A, B, keypoints, k, idmap=None, threshold=1e-6, knn_A=50):
     """Keypoints: list of tuple (movie, rating) or (song, rating), idmap: if given maps idspace to index in matrix"""
     rank = B.shape[0]
     length = B.shape[1]
@@ -312,7 +281,7 @@ def recommend2(A, B, keypoints, k, idmap=None, threshold=1e-6, knn=50):
 
     # Pick knn Best
     idx = np.argsort(w)
-    nb_elems = min(knn, len(w))
+    nb_elems = min(knn_A, len(w))
     top_w = w[idx][-nb_elems:]
     top_idx = idx[-nb_elems:]
 
