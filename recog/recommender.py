@@ -152,7 +152,7 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC, nb_iter_max=300):
 def proximal_training(C, WA, WB, rank, Obs=None,
                       theta_tv_a=200,
                       theta_tv_b=0.01,
-                      max_outer_iter=10,
+                      max_outer_iter=7,
                       max_inner_iter=800,
                       A=None, B=None, data_path=None,
                       load_from_disk=False, validation_func=None, verbose=0):
