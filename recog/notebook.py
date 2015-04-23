@@ -157,6 +157,9 @@ def genre_topics_score(input_df, reco_df):
 
 
 def song_graph_coherence_score(df, pairs_distance, idmap):
+    if len(df) < 2:
+        return 1.0
+
     total = 0
     nb_pairs = 0
     for (u, v) in itertools.combinations(df.index.values, 2):
