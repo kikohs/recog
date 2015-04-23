@@ -143,6 +143,7 @@ def sampled_vs_random(nb_laps, selected_categories, playlist_df, song_df, sample
 
 def songs_key_score(df, target_key):
     res = df.groupby(target_key).size()
+    res.sort(ascending=False)
     if res.empty:
         return 0.0
     score = res.iloc[0] / float(res.sum())
@@ -187,17 +188,17 @@ def recommend_score(playlist, ptarget, ptarget_key, starget_key, playlist_df, so
     starget_key = 's_' + starget_key
 
     d = {ptarget_key: ptarget,
-            'starget_key': starget_key,
-            'p_reco': p_reco_score,
-            'p_input': p_input_score,
-            's_song_key_reco': s_reco_score,
-            's_song_key_input': s_input_score,
-            's_genre_topics': genre_score
+        'starget_key': starget_key,
+        'p_cat_out': p_reco_score,
+        'p_cat_in': p_input_score,
+        's_cluster_out': s_reco_score,
+        's_cluster_in': s_input_score,
+        's_genre': genre_score
         }
 
     if pairs_distance is not None:
-        d['s_coherence_input'] = input_coherence
-        d['s_coherence_reco'] = reco_coherence
+        d['s_graph_dist_in'] = input_coherence
+        d['s_graph_dist_out'] = reco_coherence
 
     return d
 

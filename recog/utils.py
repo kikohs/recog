@@ -43,7 +43,7 @@ def plot_factor_mat(img, title='', cmap=None):
     cm = None
     if cmap is not None:
         cm = plt.get_cmap(cmap)
-    h = plt.imshow(img, interpolation='nearest', aspect='auto', cmap=cm)
+    h = plt.imshow(img, interpolation='nearest', aspect='auto', cmap=cm, vmin=0, vmax=1)
     h.axes.set_position([0, 0, 1, 1])
     h.axes.set_xlim(-1, img.shape[1])
     h.axes.set_ylim(img.shape[0], -1)
