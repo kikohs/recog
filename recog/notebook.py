@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 import itertools
 
-
 # project imports
 import recommender
 
@@ -109,9 +108,12 @@ def test_all_categories(selected_categories, playlist_df, song_df, sample_size, 
                         for _ in xrange(nb_playlist)]
 
         for i, playlist in enumerate(playlist_set):
-            score = recommend_score(playlist, p_category, playlist_cat_key, 'cluster_id',
-                                    playlist_df, song_df, A, B, playlist_size, idmap,
-                                    song_id_key, pairs_distance, threshold)
+            reco_df, input_df, _ = recommend_from_playlist(playlist, song_df, A, B, playlist_size,
+                                                           idmap, threshold, True)
+
+            score = recommend_score(reco_df, input_df, p_category, playlist_cat_key, 'cluster_id',
+                                    playlist_df, playlist_size, idmap,
+                                    song_id_key, pairs_distance)
             score['id'] = i
             results.append(score)
 
@@ -170,14 +172,13 @@ def song_graph_coherence_score(df, pairs_distance, idmap):
     return total / float(nb_pairs)
 
 
-def recommend_score(playlist, ptarget, ptarget_key, starget_key, playlist_df, song_df, A, B,
-                    playlist_size, idmap, song_id_key, pairs_distance=None, threshold=1e-4):
-    reco_df, input_df, _ = recommend_from_playlist(playlist, song_df, A, B, playlist_size, idmap, threshold, True)
+def recommend_score(reco_df, input_df, ptarget, ptarget_key, starget_key, playlist_df,
+                    playlist_size, idmap, song_id_key, pairs_distance=None):
+
     p_reco_score = playlist_key_score(reco_df, playlist_df, ptarget, song_id_key, ptarget_key)
     p_input_score = playlist_key_score(input_df, playlist_df, ptarget, song_id_key, ptarget_key)
     s_reco_score = songs_key_score(reco_df, starget_key)
     s_input_score = songs_key_score(input_df, starget_key)
-
     genre_score = genre_topics_score(input_df, reco_df)
 
     if pairs_distance is not None:
@@ -204,15 +205,25 @@ def recommend_score(playlist, ptarget, ptarget_key, starget_key, playlist_df, so
 
 
 def test_playlists(mix_df, playlist_df, song_df, A, B, playlist_size, idmap, song_id_key,
-                   playlist_cat_key, pairs_distance=None, threshold=1e-4, use_both=True):
+                   playlist_cat_key, pairs_distance=None, pgraph_full=None, threshold=1e-4, use_both=True):
     results = []
     for mix_id, row in mix_df.iterrows():
         p_category = row[playlist_cat_key]
         playlist = row[song_id_key]
-        score = recommend_score(playlist, p_category, playlist_cat_key, 'cluster_id',
-                                playlist_df, song_df, A, B, playlist_size, idmap, song_id_key,
-                                pairs_distance, threshold)
+
+        reco_df, input_df, _ = recommend_from_playlist(playlist, song_df, A, B, playlist_size, idmap, threshold, use_both)
+        score = recommend_score(reco_df, input_df, p_category, playlist_cat_key, 'cluster_id',
+                                playlist_df, playlist_size, idmap, song_id_key,
+                                pairs_distance)
+
+        if pgraph_full is not None:
+            mix_idx = mix_df.index.get_loc(mix_id)
+            songs = recommender.playlist_graph_only_reco(mix_idx, pgraph_full, song_id_key)
+            reco_df = song_df.loc[songs]
+            score['p_cat_out_graph_only'] = playlist_key_score(reco_df, playlist_df, p_category, song_id_key, playlist_cat_key)
 
         score[mix_df.index.name] = mix_id
         results.append(score)
     return pd.DataFrame(results).set_index('mix_id')
+
+
