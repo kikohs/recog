@@ -46,14 +46,15 @@ def create_song_graph_impl(feat, n_neighbors, metadata=None, p=1, directed=False
             g.add_nodes_from(feat.index.values)
 
     # one more neighbors because we are skipping the self comparison
-    near = neighbors.NearestNeighbors(n_neighbors + 1, algorithm='auto', p=p).fit(feat.values)
+    near = neighbors.NearestNeighbors(n_neighbors + 1, algorithm='brute', p=p).fit(feat.values)
     distances, indices = near.kneighbors(feat)
     # Mean of the the kth nearest neighbors for each data point
     sigma = np.mean(distances[:, -1])
 
     # normalize distance for edge weights
     t = distances / sigma
-    distances = np.exp(-(t * t))
+    # weights = np.exp(-(t * t))
+    weights = np.exp(-t)
 
     if relabel_nodes:
         feat = feat.reset_index()
@@ -63,9 +64,9 @@ def create_song_graph_impl(feat, n_neighbors, metadata=None, p=1, directed=False
             src = feat.index[i]
             for j in xrange(1, indices.shape[1]):
                 tgt = feat.index[indices[i, j]]
-                w = distances[i, j]
                 data = dict()
-                data['weight'] = w
+                data['weight'] = weights[i, j]
+                data['dist'] = distances[i, j]
                 if not directed:
                     eid = str(tgt) + '-' + str(src) if src > tgt else str(src) + '-' + str(tgt)
                 else:
@@ -77,8 +78,8 @@ def create_song_graph_impl(feat, n_neighbors, metadata=None, p=1, directed=False
             src = feat.index[i]
             for j in xrange(1, indices.shape[1]):
                 tgt = feat.index[indices[i, j]]
-                w = distances[i, j]
-                g.add_edge(src, tgt, weight=w)
+                w_ij = weights[i, j]
+                g.add_edge(src, tgt, weight=w_ij, dist=distances[i, j])
     return g
 
 
@@ -155,7 +156,6 @@ def create_playlist_graph_impl(mix_df, playlist_df, playlist_id_key, song_id_key
             weight += p_category_weight
 
         g[u][v]['weight'] = weight
-
     return g
 
 

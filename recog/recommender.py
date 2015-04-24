@@ -220,45 +220,44 @@ def proximal_training(C, WA, WB, rank, Obs=None,
     print 'Total elapsed time:', time.time() - start, 'seconds'
     return np.array(A), np.array(B)
 
+# def recommend(B, keypoints, k, idmap=None, threshold=1e-3):
+#     """Keypoints: list of tuple (movie, rating) or (song, rating), idmap: if given maps idspace to index in matrix"""
+#     rank = B.shape[0]
+#     length = B.shape[1]
+#
+#     mask = np.zeros(length)
+#     if idmap is not None:
+#         mask_idx = map(lambda x: idmap[x[0]], keypoints)
+#     else:
+#         mask_idx = map(lambda x: x[0], keypoints)
+#     mask[mask_idx] = 1.0
+#     mask = np.diag(mask)
+#
+#     ratings = np.zeros(length)
+#     ratings[mask_idx] = map(lambda x: x[1], keypoints)
+#
+#     z = B.dot(mask).dot(B.T) + 1e-3 * np.eye(rank)
+#     q = B.dot(mask).dot(ratings)
+#
+#     # Results
+#     t = sp.linalg.solve(z, q)
+#     raw = np.array(t.T.dot(B))
+#
+#     # Filter numeric errors
+#     mask = raw > threshold
+#     points = raw[mask]
+#     # Get valid subset of songs
+#     position = np.arange(len(mask))[mask]
+#     # Get unsorted subset index of k highest values
+#     ind = np.argpartition(points, -k)[-k:]
+#     # Get sorted subset index of highest values
+#     ind = ind[np.argsort(points[ind])]
+#     # map subset index to global position of k elements of highest value
+#     elems = position[ind]
+#     return elems, raw
 
-def recommend(B, keypoints, k, idmap=None, threshold=1e-3):
-    """Keypoints: list of tuple (movie, rating) or (song, rating), idmap: if given maps idspace to index in matrix"""
-    rank = B.shape[0]
-    length = B.shape[1]
 
-    mask = np.zeros(length)
-    if idmap is not None:
-        mask_idx = map(lambda x: idmap[x[0]], keypoints)
-    else:
-        mask_idx = map(lambda x: x[0], keypoints)
-    mask[mask_idx] = 1.0
-    mask = np.diag(mask)
-
-    ratings = np.zeros(length)
-    ratings[mask_idx] = map(lambda x: x[1], keypoints)
-
-    z = B.dot(mask).dot(B.T) + 1e-3 * np.eye(rank)
-    q = B.dot(mask).dot(ratings)
-
-    # Results
-    t = sp.linalg.solve(z, q)
-    raw = np.array(t.T.dot(B))
-
-    # Filter numeric errors
-    mask = raw > threshold
-    points = raw[mask]
-    # Get valid subset of songs
-    position = np.arange(len(mask))[mask]
-    # Get unsorted subset index of k highest values
-    ind = np.argpartition(points, -k)[-k:]
-    # Get sorted subset index of highest values
-    ind = ind[np.argsort(points[ind])]
-    # map subset index to global position of k elements of highest value
-    elems = position[ind]
-    return elems, raw
-
-
-def recommend2(A, B, keypoints, k, idmap=None, threshold=1e-6, knn_A=50):
+def recommend_from_keypoints(A, B, keypoints, k, idmap=None, threshold=1e-6, knn_A=50):
     """Keypoints: list of tuple (movie, rating) or (song, rating), idmap: if given maps idspace to index in matrix"""
     rank = B.shape[0]
     length = B.shape[1]
@@ -280,6 +279,7 @@ def recommend2(A, B, keypoints, k, idmap=None, threshold=1e-6, knn_A=50):
     # Results
     row_a = sp.linalg.solve(z, q)
     z = np.linalg.norm(A - row_a, axis=1)
+
     sigma = np.mean(z) / 4.0
     w = np.exp(-np.square(z) / (sigma * sigma))
 
@@ -306,34 +306,3 @@ def recommend2(A, B, keypoints, k, idmap=None, threshold=1e-6, knn_A=50):
     # map subset index to global position of k elements of highest value
     elems = position[ind]
     return elems, raw
-
-
-def playlist_graph_only_reco(mix_idx, pgraph, song_id_key, top_k_playlists=50, top_k_songs=30):
-    neighbors = pgraph[mix_idx]
-    res = []
-    for k, v in neighbors.iteritems():
-        res.append((k, v['weight']))
-
-    # Sorted neighbors by edge weight (bigger to smaller)
-    n = min(len(res), top_k_playlists)
-    sorted_neighbors = sorted(res, key=operator.itemgetter(1), reverse=True)[:n]
-
-    # All weight to each song in each playlist
-    hist = defaultdict(lambda: 0)
-    for (mix, weight) in sorted_neighbors:
-        for s in pgraph.node[mix][song_id_key]:
-            hist[s] += weight
-
-    n = min(len(hist), top_k_songs)
-    sorted_songs = sorted(hist.items(), key=operator.itemgetter(1), reverse=True)
-
-    # group_size = OrderedDict()
-    # for v, group in itertools.groupby(sorted_songs, key=operator.itemgetter(1)):
-    #     group_size[v] = len(list(group))
-    #
-    # print group_size
-
-    # TODO change
-    res = sorted_songs[:n]
-    return map(lambda x: x[0], res)
-
