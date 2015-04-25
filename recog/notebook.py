@@ -4,6 +4,8 @@ __author__ = 'kikohs'
 
 
 import numpy as np
+import scipy as sp
+import scipy.sparse
 import pandas as pd
 import itertools
 import operator
@@ -12,6 +14,7 @@ from collections import defaultdict
 
 # project imports
 import recommender
+import utils
 
 
 # def create_custom_playlist_df(song_df, nb_mixes=100, playlist_size=10, gb_key='genre'):
@@ -221,6 +224,42 @@ def recommend_playlist_graph_only(songs, song_df, mix_df_train, playlist_df_trai
 
     sorted_songs = sorted(hist.items(), key=operator.itemgetter(1), reverse=True)
     res = sorted_songs[:top_k_songs]
-    return song_df.loc[map(lambda x: x[0], res)]
+
+    # return songs and normalized histogram of weights
+    total = sum(map(lambda x: x[1], res))
+    return song_df.loc[map(lambda x: x[0], res)], map(lambda x: x[1] / float(total), res)
+
+
+def create_augmented_recommendation_matrix(mix_df, playlist_df, song_df, song_id_key,
+                                           playlist_id_key,
+                                           aug_factor=0.8,
+                                           top_k_playlists=50,
+                                           top_k_songs=30,
+                                           normalize=True):
+
+    c = sp.sparse.dok_matrix((len(mix_df), len(song_df)), dtype=np.float64)
+    # fill each playlist (row) with corresponding songs
+    for i, (_, row) in itertools.izip(itertools.count(), mix_df.iterrows()):
+        songs = row[song_id_key]
+        for song in songs:
+            # Get mapping form b_id to index position
+            j = song_df.index.get_loc(song)
+            c[i, j] = 1.0
+
+        # Augmented row
+        others, weights = recommend_playlist_graph_only(songs, song_df, mix_df,
+                                                        playlist_df, song_id_key, playlist_id_key,
+                                                        top_k_playlists, top_k_songs)
+
+        for song, w in itertools.izip(others.index.values, weights):
+            # Get mapping form b_id to index position
+            j = song_df.index.get_loc(song)
+            c[i, j] = aug_factor * w
+
+    # Convert to Compressed sparse row for speed
+    c = sp.sparse.csr_matrix(c)
+    if normalize:
+        c = utils.create_double_stochastic_matrix(c, 1e-2, 1)
+    return c
 
 

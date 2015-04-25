@@ -2,16 +2,18 @@
 
 __author__ = 'kikohs'
 
+import sys
 import os
 import time
 import numpy as np
 import scipy as sp
+import scipy.sparse
 import pandas as pd
 import networkx as nx
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import scipy.io
-import scipy.sparse
+
 import itertools
 import operator
 import random
@@ -209,7 +211,10 @@ def proximal_training(C, WA, WB, rank, Obs=None,
         if verbose > 0:
             if validation_func is not None:
                 utils.plot_factor_mat(A, 'A step' + str(nb_iter))
-                print validation_func(np.array(A), np.array(B))
+                t = validation_func(np.array(A), np.array(B))
+                print t
+                print t.mean()
+                sys.stdout.flush()
 
             print('Step:{} done in {} seconds\n'.format(nb_iter, time.time() - tick))
 
