@@ -6,6 +6,9 @@ __author__ = 'kikohs'
 import numpy as np
 import pandas as pd
 import itertools
+import operator
+from collections import defaultdict
+
 
 # project imports
 import recommender
@@ -196,10 +199,28 @@ def recommend(songs, song_df, A, B, playlist_size, idmap, top_k_playlists=50, th
 #     return map(lambda x: x[0], res)
 
 
-def recommend_playlist_graph_only(songs, song_df, playlist_df_train, song_id_key, top_k_playlists=50, top_k_songs=30):
-    pass
+def recommend_playlist_graph_only(songs, song_df, mix_df_train, playlist_df_train, song_id_key,
+                                  playlist_id_key, top_k_playlists=50, top_k_songs=30):
+    # Get all playlists with at least one song overlap
+    subset = playlist_df_train[playlist_df_train[song_id_key].isin(songs)]
+    counts = subset.groupby(playlist_id_key).size()
+    # Compute cosine sim
+    kept_playlists = pd.Series(index=counts.index)
+    for mix, count in counts.iteritems():
+        kept_playlists[mix] = count / (np.sqrt(mix_df_train.loc[mix]['size']) * np.sqrt(len(songs)))
 
+    # Sort by closest playlist
+    kept_playlists.sort(ascending=False)
+    kept_playlists = kept_playlists[:top_k_playlists]
 
+    # Create weighted histogram for each song in all kept playlists
+    hist = defaultdict(lambda: 0)
+    for mix, weight in kept_playlists.iteritems():
+        for s in mix_df_train.loc[mix][song_id_key]:
+            hist[s] += weight
 
+    sorted_songs = sorted(hist.items(), key=operator.itemgetter(1), reverse=True)
+    res = sorted_songs[:top_k_songs]
+    return song_df.loc[map(lambda x: x[0], res)]
 
 
