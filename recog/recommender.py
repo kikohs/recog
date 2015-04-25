@@ -210,11 +210,11 @@ def proximal_training(C, WA, WB, rank, Obs=None,
 
         if verbose > 0:
             if validation_func is not None:
-                utils.plot_factor_mat(A, 'A step' + str(nb_iter))
                 t = validation_func(np.array(A), np.array(B))
                 print t
                 print t.mean()
                 sys.stdout.flush()
+                # utils.plot_factor_mat(A, 'A step' + str(nb_iter))
 
             print('Step:{} done in {} seconds\n'.format(nb_iter, time.time() - tick))
 
