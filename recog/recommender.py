@@ -269,7 +269,8 @@ def recommend_from_keypoints(A, B, keypoints, k, idmap=None, threshold=1e-10, kn
     rank = B.shape[0]
     length = B.shape[1]
 
-    mask = np.zeros(length)
+    # mask = np.zeros(length)
+    mask = np.ones(length) * 0.1
     if idmap is not None:
         mask_idx = map(lambda x: idmap[x[0]], keypoints)
     else:
@@ -280,13 +281,12 @@ def recommend_from_keypoints(A, B, keypoints, k, idmap=None, threshold=1e-10, kn
     ratings = np.zeros(length)
     ratings[mask_idx] = map(lambda x: x[1], keypoints)
 
-    z = B.dot(mask).dot(B.T) + 1e-3 * np.eye(rank)
+    z = B.dot(mask).dot(B.T) + 1e-2 * np.eye(rank)
     q = B.dot(mask).dot(ratings)
 
     # Results
     row_a = sp.linalg.solve(z, q)
     z = np.linalg.norm(A - row_a, axis=1)
-
     sigma = np.mean(z) / 4.0
     w = np.exp(-np.square(z) / (sigma * sigma))
 
