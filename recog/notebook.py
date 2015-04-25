@@ -83,13 +83,6 @@ def playlist_key_score(reco_df, playlist_df, target, song_id_key, key):
     return count / float(total)
 
 
-def recommend(songs, song_df, A, B, playlist_size, idmap, threshold=1e-6):
-    # Map song ids to [(song_id1, 1), (song_id2, 1), ...]
-    keypoints = map(lambda x: (x, 1), songs)
-    reco_idx, _ = recommender.recommend_from_keypoints(A, B, keypoints, playlist_size, idmap, threshold)
-    return song_df.iloc[reco_idx], song_df.loc[songs]
-
-
 def songs_key_score(df, target_key):
     res = df.groupby(target_key).size()
     res.sort(ascending=False)
@@ -139,17 +132,21 @@ def song_graph_distance_score(df, pairs_distance, idmap):
 
 
 def recommend_score(reco_df, input_df, ptarget, ptarget_key, starget_key, playlist_df,
-                    playlist_size, idmap, song_id_key, pairs_distance=None):
+                    playlist_size, idmap, song_id_key, pair_distances=None, pcat_out_only=False):
 
+    d = dict()
     p_reco_score = playlist_key_score(reco_df, playlist_df, ptarget, song_id_key, ptarget_key)
+    if pcat_out_only:
+        d[ptarget_key] = ptarget
+        d['p_cat_out'] = p_reco_score
+        return d
+
     # p_input_score = playlist_key_score(input_df, playlist_df, ptarget, song_id_key, ptarget_key)
     s_reco_score = songs_key_score(reco_df, starget_key)
     s_input_score = songs_key_score(input_df, starget_key)
     genre_score = genre_topics_score(input_df, reco_df)
 
-    ptarget_key = 'p_{}'.format(ptarget_key)
     starget_key = 's_{}'.format(starget_key)
-
     d = {ptarget_key: ptarget,
         'starget_key': starget_key,
         'p_cat_out': p_reco_score,
@@ -160,78 +157,21 @@ def recommend_score(reco_df, input_df, ptarget, ptarget_key, starget_key, playli
         's_genre': genre_score
         }
 
-    if pairs_distance is not None:
-        input_coherence = song_graph_distance_score(input_df, pairs_distance, idmap)
-        reco_coherence = song_graph_distance_score(reco_df, pairs_distance, idmap)
+    if pair_distances is not None:
+        input_coherence = song_graph_distance_score(input_df, pair_distances, idmap)
+        reco_coherence = song_graph_distance_score(reco_df, pair_distances, idmap)
         d['s_graph_dist_in'] = input_coherence
         d['s_graph_dist_out'] = reco_coherence
 
     return d
 
 
-def test_playlists(mix_df, playlist_df, song_df, A, B, playlist_size, idmap, song_id_key,
-                   playlist_cat_key, pairs_distance=None, pgraph_full=None, threshold=1e-6):
-    results = []
-    for mix_id, row in mix_df.iterrows():
-        p_category = row[playlist_cat_key]
-        playlist = row[song_id_key]
-
-        reco_df, input_df = recommend(playlist, song_df, A, B, playlist_size, idmap, threshold)
-        score = recommend_score(reco_df, input_df, p_category, playlist_cat_key, 'cluster_id',
-                                playlist_df, playlist_size, idmap, song_id_key,
-                                pairs_distance)
-        score[mix_df.index.name] = mix_id
-        results.append(score)
-    return pd.DataFrame(results).set_index('mix_id')
-
-
-def test_all_categories(selected_categories, playlist_df, song_df, sample_size, A,
-                        B, playlist_size, idmap, song_id_key, playlist_cat_key, threshold=1e-4,
-                        sample_from_random=False, pairs_distance=None, nb_playlist=1):
-    results = []
-    for p_category in selected_categories:
-
-        query_cat = p_category
-        if sample_from_random:
-            query_cat = ''
-
-        playlist_set = [pick_random_sample(playlist_df, query_cat, sample_size, song_id_key)
-                        for _ in xrange(nb_playlist)]
-
-        for i, playlist in enumerate(playlist_set):
-            reco_df, input_df = recommend(playlist, song_df, A, B, playlist_size,
-                                                           idmap, threshold)
-
-            score = recommend_score(reco_df, input_df, p_category, playlist_cat_key, 'cluster_id',
-                                    playlist_df, playlist_size, idmap,
-                                    song_id_key, pairs_distance)
-            score['id'] = i
-            results.append(score)
-
-    return pd.DataFrame(results)
-
-
-def sampled_vs_random(nb_laps, selected_categories, playlist_df, song_df, sample_size, A,
-                        B, k, idmap, song_id_key, playlist_cat_key, pairs_distance=None, threshold=1e-6):
-
-    results = test_all_categories(selected_categories, playlist_df, song_df, sample_size, A, B, k, idmap,
-                                  song_id_key, playlist_cat_key, pairs_distance=pairs_distance, nb_playlist=nb_laps)
-
-    m = results.groupby('p_' + playlist_cat_key).mean()
-    m.drop('id', axis=1, inplace=True)
-
-    results_random = test_all_categories(selected_categories, playlist_df, song_df, sample_size, A, B, k, idmap,
-                                         song_id_key, playlist_cat_key, sample_from_random=True,
-                                         pairs_distance=pairs_distance,
-                                         nb_playlist=nb_laps)
-
-    n = results_random.groupby('p_' + playlist_cat_key).mean()
-    n.drop('id', axis=1, inplace=True)
-
-    # res['sampled / random absolute gain'] = (res['sampled'] - res['random']) * 100
-    # res['sampled / random relative gain'] = ((res['sampled'] / res['random']) - 1) * 100
-
-    return m, n
+def recommend(songs, song_df, A, B, playlist_size, idmap, top_k_playlists=50, threshold=1e-6):
+    # Map song ids to [(song_id1, 1), (song_id2, 1), ...]
+    keypoints = map(lambda x: (x, 1), songs)
+    reco_idx, _ = recommender.recommend_from_keypoints(A, B, keypoints,
+                                                       playlist_size, idmap, threshold, top_k_playlists)
+    return song_df.iloc[reco_idx]
 
 
 # def playlist_graph_only_reco(mix_idx, pgraph, song_id_key, top_k_playlists=50, top_k_songs=30):
