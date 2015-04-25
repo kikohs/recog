@@ -159,20 +159,21 @@ def proximal_training(C, WA, WB, rank, Obs=None,
                       max_outer_iter=7,
                       max_inner_iter=800,
                       A=None, B=None, data_path=None,
-                      load_from_disk=False, validation_func=None, verbose=0):
+                      load_from_disk=False, validation_func=None, random_init=False, verbose=0):
     start = time.time()
     GA = utils.convert_adjacency_matrix(WA)
     GB = utils.convert_adjacency_matrix(WB)
 
-    # A, B = init_factor_matrices(C.shape[0], C.shape[1], rank)
-
     if load_from_disk and data_path is not None:
-        data = np.load(data_path)
+        data = np.load(data_path + '.npz')
         A = data['A']
         B = data['B']
     else:
-        if A is None or B is None:
-            A, B = nmf._initialize_nmf(C, rank, None)
+        if random_init:
+            A, B = init_factor_matrices(C.shape[0], C.shape[1], rank)
+        else:
+            if A is None or B is None:
+                A, B = nmf._initialize_nmf(C, rank, None)
 
     KA = graph_gradient_operator(GA)
     KB = graph_gradient_operator(GB)
@@ -207,6 +208,7 @@ def proximal_training(C, WA, WB, rank, Obs=None,
 
         if verbose > 0:
             if validation_func is not None:
+                utils.plot_factor_mat(A, 'A step' + str(nb_iter))
                 print validation_func(np.array(A), np.array(B))
 
             print('Step:{} done in {} seconds\n'.format(nb_iter, time.time() - tick))
@@ -257,7 +259,7 @@ def proximal_training(C, WA, WB, rank, Obs=None,
 #     return elems, raw
 
 
-def recommend_from_keypoints(A, B, keypoints, k, idmap=None, threshold=1e-6, knn_A=50):
+def recommend_from_keypoints(A, B, keypoints, k, idmap=None, threshold=1e-10, knn_A=50):
     """Keypoints: list of tuple (movie, rating) or (song, rating), idmap: if given maps idspace to index in matrix"""
     rank = B.shape[0]
     length = B.shape[1]

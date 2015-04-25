@@ -169,7 +169,7 @@ def recommend_score(reco_df, input_df, ptarget, ptarget_key, starget_key, playli
     return d
 
 
-def recommend(songs, song_df, A, B, playlist_size, idmap, top_k_playlists=50, threshold=1e-6):
+def recommend(songs, song_df, A, B, playlist_size, idmap, top_k_playlists=50, threshold=1e-10):
     # Map song ids to [(song_id1, 1), (song_id2, 1), ...]
     keypoints = map(lambda x: (x, 1), songs)
     reco_idx, _ = recommender.recommend_from_keypoints(A, B, keypoints,
