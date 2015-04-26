@@ -281,7 +281,7 @@ def recommend_from_keypoints(A, B, keypoints, k, idmap=None, threshold=1e-10, kn
     ratings = np.zeros(length)
     ratings[mask_idx] = map(lambda x: x[1], keypoints)
 
-    z = B.dot(mask).dot(B.T) + 1e-2 * np.eye(rank)
+    z = B.dot(mask).dot(B.T) + 2e-2 * np.eye(rank)
     q = B.dot(mask).dot(ratings)
 
     # Results
@@ -308,8 +308,8 @@ def recommend_from_keypoints(A, B, keypoints, k, idmap=None, threshold=1e-10, kn
     position = np.arange(len(mask))[mask]
     # Get unsorted subset index of k highest values
     ind = np.argpartition(points, -nb_elems)[-nb_elems:]
-    # Get sorted subset index of highest values
-    ind = ind[np.argsort(points[ind])]
+    # Get sorted subset index of highest values, sorted by high values
+    ind = ind[np.argsort(points[ind])][::-1]
     # map subset index to global position of k elements of highest value
     elems = position[ind]
     return elems, raw
