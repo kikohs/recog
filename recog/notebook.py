@@ -137,6 +137,24 @@ def song_graph_distance_score(df, pairs_distance, idmap):
     return total / float(nb_pairs)
 
 
+def mpr_score(x_real_idx, x_pred, counts_real):
+    x_real = np.zeros(len(x_pred))
+    x_real[x_real_idx] = 1.0
+    # descending order
+    sorted_idx = np.argsort(-x_pred)
+
+    sx_real = x_real[sorted_idx]
+    scounts = counts_real[sorted_idx]
+
+    # indices of actual ground truth
+    ranks = np.where(sx_real == 1)[0]
+    # normalize between 0 and 1
+    nranks = ranks / float((len(x_pred) - 1))
+    t = scounts[ranks]
+    mpr = np.inner(nranks, t) / np.sum(t)
+    return mpr
+
+
 def recommend_score(reco_df, input_df, ptarget, ptarget_key, starget_key, playlist_df,
                     playlist_size, idmap, song_id_key, pair_distances=None, pcat_out_only=False):
 
@@ -175,35 +193,13 @@ def recommend_score(reco_df, input_df, ptarget, ptarget_key, starget_key, playli
 def recommend(songs, song_df, A, B, playlist_size, idmap, top_k_playlists=50, threshold=1e-10):
     # Map song ids to [(song_id1, 1), (song_id2, 1), ...]
     keypoints = map(lambda x: (x, 1), songs)
-    reco_idx, _ = recommender.recommend_from_keypoints(A, B, keypoints,
+    reco_idx, rec_row = recommender.recommend_from_keypoints(A, B, keypoints,
                                                        playlist_size, idmap, threshold, top_k_playlists)
-    return song_df.iloc[reco_idx]
-
-
-# def playlist_graph_only_reco(mix_idx, pgraph, song_id_key, top_k_playlists=50, top_k_songs=30):
-#     neighbors = pgraph[mix_idx]
-#     res = []
-#     for k, v in neighbors.iteritems():
-#         res.append((k, v['weight']))
-#
-#     # Sorted neighbors by edge weight (bigger to smaller)
-#     n = min(len(res), top_k_playlists)
-#     sorted_neighbors = sorted(res, key=operator.itemgetter(1), reverse=True)[:n]
-#
-#     # All weight to each song in each playlist
-#     hist = defaultdict(lambda: 0)
-#     for (mix, weight) in sorted_neighbors:
-#         for s in pgraph.node[mix][song_id_key]:
-#             hist[s] += weight
-#
-#     n = min(len(hist), top_k_songs)
-#     sorted_songs = sorted(hist.items(), key=operator.itemgetter(1), reverse=True)
-#     res = sorted_songs[:n]
-#     return map(lambda x: x[0], res)
+    return song_df.iloc[reco_idx], rec_row
 
 
 def recommend_playlist_graph_only(songs, song_df, mix_df_train, playlist_df_train, song_id_key,
-                                  playlist_id_key, top_k_playlists=50, top_k_songs=30):
+                                  playlist_id_key, idmap, top_k_playlists=50, top_k_songs=30):
     # Get all playlists with at least one song overlap
     subset = playlist_df_train[playlist_df_train[song_id_key].isin(songs)]
     counts = subset.groupby(playlist_id_key).size()
@@ -215,7 +211,6 @@ def recommend_playlist_graph_only(songs, song_df, mix_df_train, playlist_df_trai
     # Sort by closest playlist
     kept_playlists.sort(ascending=False)
     kept_playlists = kept_playlists[:top_k_playlists]
-
     # Create weighted histogram for each song in all kept playlists
     hist = defaultdict(lambda: 0)
     for mix, weight in kept_playlists.iteritems():
@@ -223,11 +218,13 @@ def recommend_playlist_graph_only(songs, song_df, mix_df_train, playlist_df_trai
             hist[s] += weight
 
     sorted_songs = sorted(hist.items(), key=operator.itemgetter(1), reverse=True)
-    res = sorted_songs[:top_k_songs]
+    # Fill row_vector for MPR
+    rec_row = np.zeros(len(song_df))
+    for (s, v) in sorted_songs:
+        rec_row[idmap[s]] = v
 
-    # return songs and normalized histogram of weights
-    total = sum(map(lambda x: x[1], res))
-    return song_df.loc[map(lambda x: x[0], res)] #, map(lambda x: x[1] / float(total), res)
+    res = sorted_songs[:top_k_songs]
+    return song_df.loc[map(lambda x: x[0], res)], rec_row
 
 
 # def create_augmented_recommendation_matrix(mix_df, playlist_df, song_df, song_id_key,

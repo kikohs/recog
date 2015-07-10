@@ -287,6 +287,8 @@ def recommend_from_keypoints(A, B, keypoints, k, idmap=None, threshold=1e-10, kn
     # Results
     row_a = sp.linalg.solve(z, q)
     z = np.linalg.norm(A - row_a, axis=1)
+
+    # TODO try, np.sqrt(np.mean(z**2) / 4.0)
     sigma = np.mean(z) / 4.0
     w = np.exp(-np.square(z) / (sigma * sigma))
 
@@ -296,7 +298,7 @@ def recommend_from_keypoints(A, B, keypoints, k, idmap=None, threshold=1e-10, kn
     top_w = w[idx][-nb_elems:]
     top_idx = idx[-nb_elems:]
 
-    # row size multiplication (new solution)
+    # row size multiplication (new solution), weighted sum
     row_a = np.sum(np.multiply(A[top_idx],  top_w[:, np.newaxis]), axis=0) / np.sum(top_w)
     # Multiply estimated C by B
     raw = np.array(row_a.dot(B))
