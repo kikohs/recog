@@ -71,14 +71,14 @@ def graph_gradient_operator(g, key='weight'):
     return sp.sparse.csr_matrix(k)
 
 
-def update_step(theta_tv_a, theta_tv_b, a, b, ka, norm_ka, kb, norm_kb, omega, oc, max_iter):
-    b, a = update_factor(theta_tv_b, b, a, kb, norm_kb, omega, oc, max_iter)
-    a, b = update_factor(theta_tv_a, a.T, b.T, ka, norm_ka, omega.T, oc.T, max_iter)
+def update_step(theta_tv_a, theta_tv_b, a, b, ka, norm_ka, kb, norm_kb, omega, oc, max_iter, method):
+    b, a = update_factor(theta_tv_b, b, a, kb, norm_kb, omega, oc, max_iter, method)
+    a, b = update_factor(theta_tv_a, a.T, b.T, ka, norm_ka, omega.T, oc.T, max_iter, method)
     a, b = a.T, b.T
     return a, b
 
 
-def update_factor(theta_tv, X, Y, K, normK, omega, OC, nb_iter_max=300):
+def update_factor(theta_tv, X, Y, K, normK, omega, OC, nb_iter_max=300, method=0):
     # L2-norm of columns
     # X = (X.T / (np.linalg.norm(X, axis=1) + 1e-6)).T
     divider = np.linalg.norm(X, axis=1) + 1e-6
@@ -122,7 +122,13 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC, nb_iter_max=300):
 
         # update P2 (TV)
         P2 += sigma2 * K.dot(Xb.T)
-        P2 -= sigma2 * soft_thresholding(P2 / sigma2, theta_tv / sigma2)
+
+        # TV
+        if method == 0:
+            P2 -= sigma2 * soft_thresholding(P2 / sigma2, theta_tv / sigma2)
+        else:
+            # Dirichlet
+            P2 *= theta_tv / (theta_tv + sigma2)
 
         # new primal variable
         X = X - tau1 * (Y.T.dot(P1)) - tau2 * (K.T.dot(P2)).T
@@ -156,12 +162,12 @@ def update_factor(theta_tv, X, Y, K, normK, omega, OC, nb_iter_max=300):
 
 
 def proximal_training(C, WA, WB, rank, Obs=None,
-                      theta_tv_a=200,
+                      theta_tv_a=100,
                       theta_tv_b=0.01,
                       max_outer_iter=7,
                       max_inner_iter=800,
                       A=None, B=None, data_path=None,
-                      load_from_disk=False, validation_func=None, random_init=False, verbose=0):
+                      load_from_disk=False, validation_func=None, random_init=False, verbose=0, method=0):
     start = time.time()
     GA = utils.convert_adjacency_matrix(WA)
     GB = utils.convert_adjacency_matrix(WB)
@@ -202,11 +208,11 @@ def proximal_training(C, WA, WB, rank, Obs=None,
     error = False
     while not stop and nb_iter < max_outer_iter:
         tick = time.time()
-        A, B = update_step(theta_tv_a, theta_tv_b, A, B, KA, normKA, KB, normKB, Obs, OC, max_inner_iter)
+        A, B = update_step(theta_tv_a, theta_tv_b, A, B, KA, normKA, KB, normKB, Obs, OC, max_inner_iter, method)
         nb_iter += 1
 
         if data_path is not None:
-            np.savez(data_path, A=A, B=B)
+            np.savez(data_path, A=A, B=B, theta_tv_a=theta_tv_a, theta_tv_b=theta_tv_b)
 
         if verbose > 0:
             if validation_func is not None:

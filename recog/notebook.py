@@ -165,7 +165,7 @@ def recommend_score(reco_df, input_df, ptarget, ptarget_key, starget_key, playli
         d['p_cat_out'] = p_reco_score
         return d
 
-    # p_input_score = playlist_key_score(input_df, playlist_df, ptarget, song_id_key, ptarget_key)
+    p_input_score = playlist_key_score(input_df, playlist_df, ptarget, song_id_key, ptarget_key)
     s_reco_score = songs_key_score(reco_df, starget_key)
     s_input_score = songs_key_score(input_df, starget_key)
     genre_score = genre_topics_score(input_df, reco_df)
@@ -174,9 +174,9 @@ def recommend_score(reco_df, input_df, ptarget, ptarget_key, starget_key, playli
     d = {ptarget_key: ptarget,
         'starget_key': starget_key,
         'p_cat_out': p_reco_score,
-        # 'p_cat_in': p_input_score,
-        # 's_cluster_out': s_reco_score,
-        # 's_cluster_in': s_input_score,
+        'p_cat_in': p_input_score,
+        's_cluster_out': s_reco_score,
+        's_cluster_in': s_input_score,
         's_cluster': s_reco_score - s_input_score,
         's_genre': genre_score
         }
