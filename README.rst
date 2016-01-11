@@ -10,7 +10,7 @@ A graph audio recommender system
 Informations
 ------
 
-This is the repository for the paper: `Song Recommendation with Non-Negative Matrix Factorization and Graph Total Variation<http://arxiv.org/abs/1601.01892/>`_ by Kirell Benzi, Vassilis Kalofolias, Xavier Bresson, Pierre Vandergheynst. It will presented in ICASSP 2016.
+This is the repository for the paper: Song Recommendation with Non-Negative Matrix Factorization and Graph Total Variation <http://arxiv.org/abs/1601.01892/> by Kirell Benzi, Vassilis Kalofolias, Xavier Bresson, Pierre Vandergheynst. It will presented in ICASSP 2016.
 
 The code is in a *research state* (read not excellent) but it should work. To learn how to use the code please run the associated notebook. 
 You cannot run the cells from 'Test on Real data' to 'Prepare graphs' because the full dataset is not uploaded here. However, the sampled test data is uploaded in **resources**.
