@@ -233,42 +233,6 @@ def proximal_training(C, WA, WB, rank, Obs=None,
     print 'Total elapsed time:', time.time() - start, 'seconds'
     return np.array(A), np.array(B)
 
-# def recommend(B, keypoints, k, idmap=None, threshold=1e-3):
-#     """Keypoints: list of tuple (movie, rating) or (song, rating), idmap: if given maps idspace to index in matrix"""
-#     rank = B.shape[0]
-#     length = B.shape[1]
-#
-#     mask = np.zeros(length)
-#     if idmap is not None:
-#         mask_idx = map(lambda x: idmap[x[0]], keypoints)
-#     else:
-#         mask_idx = map(lambda x: x[0], keypoints)
-#     mask[mask_idx] = 1.0
-#     mask = np.diag(mask)
-#
-#     ratings = np.zeros(length)
-#     ratings[mask_idx] = map(lambda x: x[1], keypoints)
-#
-#     z = B.dot(mask).dot(B.T) + 1e-3 * np.eye(rank)
-#     q = B.dot(mask).dot(ratings)
-#
-#     # Results
-#     t = sp.linalg.solve(z, q)
-#     raw = np.array(t.T.dot(B))
-#
-#     # Filter numeric errors
-#     mask = raw > threshold
-#     points = raw[mask]
-#     # Get valid subset of songs
-#     position = np.arange(len(mask))[mask]
-#     # Get unsorted subset index of k highest values
-#     ind = np.argpartition(points, -k)[-k:]
-#     # Get sorted subset index of highest values
-#     ind = ind[np.argsort(points[ind])]
-#     # map subset index to global position of k elements of highest value
-#     elems = position[ind]
-#     return elems, raw
-
 
 def recommend_from_keypoints(A, B, keypoints, k, idmap=None, threshold=1e-10, knn_A=50):
     """Keypoints: list of tuple (movie, rating) or (song, rating), idmap: if given maps idspace to index in matrix"""
@@ -294,7 +258,6 @@ def recommend_from_keypoints(A, B, keypoints, k, idmap=None, threshold=1e-10, kn
     row_a = sp.linalg.solve(z, q)
     z = np.linalg.norm(A - row_a, axis=1)
 
-    # TODO try, np.sqrt(np.mean(z**2) / 4.0)
     sigma = np.mean(z) / 4.0
     w = np.exp(-np.square(z) / (sigma * sigma))
 

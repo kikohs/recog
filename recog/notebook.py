@@ -105,20 +105,6 @@ def genre_topics_score(input_df, reco_df):
         return np.linalg.norm(q, ord=2)
 
     p = np.array(reco_df['genre_topics'].values.tolist()).sum(axis=0) / len(reco_df)
-
-    # if reco_df.empty:
-    #     p = np.empty(1/float(len(q)))
-    #     p.fill(len(q))
-    # else:
-    #     p = np.array(reco_df['genre_topics'].values.tolist()).sum(axis=0) / len(reco_df)
-    #
-    # # Use KL-divergence
-    # result = 0
-    # for i in xrange(len(p)):
-    #     if p[i] < 1e-10:
-    #         continue
-    #     result += p[i] * (np.log(p[i]) - np.log(q[i]))
-
     result = np.linalg.norm(p - q, ord=2)
 
     return result
